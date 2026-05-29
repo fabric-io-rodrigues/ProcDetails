@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ProcDetails — Visualizador de Processos</title>
+
+<!-- Aplica o tema ANTES do primeiro render (evita flash) -->
+<script>
+  (function () {
+    try {
+      var t = localStorage.getItem('tema') || 'system';
+      var dark = t === 'dark' || (t === 'system' &&
+        window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-tema-pref', t);
+    } catch (e) {}
+  })();
+</script>
+
+<!-- URL da base cifrada. Altere se necessário. -->
+<script>
+  window.PROCDETAILS_ENC_URL = './base_processos.enc';
+</script>
+
+<!-- Tweaks: bloco persistido pelo host (JSON válido) -->
+<script>
+  window.TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "listLayout": "tabela",
+    "accent": "#0E7C66",
+    "density": "denso",
+    "mostrarAssunto": true
+  }/*EDITMODE-END*/;
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+<!-- sql.js (SQLite/WASM com FTS5) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/sql-wasm.js"></script>
+
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ===================== SPLASH / CARREGAMENTO ===================== -->
+  <div id="splash" class="splash">
+    <div class="splash-card">
+      <div class="brand-mark" aria-hidden="true">
+        <span class="brand-glyph">§</span>
+      </div>
+      <div class="splash-name">ProcDetails</div>
+      <div class="splash-sub" id="splash-sub">Carregando banco de dados…</div>
+      <div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
+      <div class="splash-pct" id="splash-pct">0%</div>
+    </div>
+  </div>
+
+  <!-- ===================== LOGIN ===================== -->
+  <div id="login" class="login" hidden>
+    <form class="login-card" id="login-form" autocomplete="on">
+      <div class="brand-mark" aria-hidden="true"><span class="brand-glyph">§</span></div>
+      <div class="login-name">ProcDetails</div>
+      <div class="login-sub">Base protegida. Informe a senha para continuar.</div>
+      <div class="login-field">
+        <svg class="login-lock" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="9" width="12" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9" stroke-linecap="round"/></svg>
+        <input id="login-pass" class="input" type="password" placeholder="Senha" autocomplete="current-password" aria-label="Senha" />
+        <button type="button" id="login-eye" class="login-eye" aria-label="Mostrar senha" title="Mostrar/ocultar">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5z"/><circle cx="10" cy="10" r="2.4"/></svg>
+        </button>
+      </div>
+      <div class="login-error" id="login-error" hidden></div>
+      <button class="btn primary login-submit" type="submit" id="login-submit">Entrar</button>
+      <div class="login-hint" id="login-hint"></div>
+    </form>
+  </div>
+
+  <!-- ===================== APP ===================== -->
+  <div id="app" class="app" hidden>
+    <!-- Barra superior (somente mobile) -->
+    <header class="mobile-bar" id="mobile-bar">
+      <button class="mb-btn" id="btn-drawer" aria-label="Abrir menu">
+        <svg viewBox="0 0 20 20" width="20" height="20"><path d="M3 5h14M3 10h14M3 15h14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      </button>
+      <a class="mb-brand" href="#/">
+        <span class="brand-glyph">§</span>
+        <span>ProcDetails</span>
+      </a>
+      <button class="mb-btn" id="btn-theme-mobile" aria-label="Alternar tema">
+        <svg viewBox="0 0 20 20" width="20" height="20" class="ico-theme-dark"><path d="M16 11.5A6.5 6.5 0 1 1 8.5 4 5 5 0 0 0 16 11.5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      </button>
+    </header>
+    <div class="drawer-scrim" id="drawer-scrim"></div>
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="sidebar">
+      <div class="side-top">
+        <button class="side-collapse" id="btn-collapse" title="Recolher" aria-label="Recolher menu">
+          <svg viewBox="0 0 16 16" width="16" height="16"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <a class="brand" href="#/">
+          <span class="brand-glyph">§</span>
+          <span class="brand-text">
+            <span class="brand-title">ProcDetails</span>
+            <span class="brand-meta" id="brand-meta">—</span>
+          </span>
+        </a>
+      </div>
+
+      <nav class="nav" id="nav">
+        <a class="nav-item" data-route="lista" href="#/">
+          <svg viewBox="0 0 20 20" class="ico"><path d="M3 4h14M3 10h14M3 16h9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span>Processos</span>
+        </a>
+        <a class="nav-item" data-route="agenda" href="#/agenda">
+          <svg viewBox="0 0 20 20" class="ico"><rect x="3" y="4" width="14" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3 8h14M7 2v3M13 2v3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span>Agenda</span>
+        </a>
+        <a class="nav-item" data-route="advogado" href="#/advogado">
+          <svg viewBox="0 0 20 20" class="ico"><circle cx="10" cy="6.5" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4 17c0-3.3 2.7-5 6-5s6 1.7 6 5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span>Advogados</span>
+        </a>
+        <a class="nav-item" data-route="favoritos" href="#/favoritos">
+          <svg viewBox="0 0 20 20" class="ico"><path d="M10 2.6l2.2 4.5 5 .7-3.6 3.5.9 5-4.5-2.4L5.5 16.8l.9-5L2.8 8.3l5-.7z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          <span>Favoritos</span>
+          <span class="nav-count" id="fav-count" hidden>0</span>
+        </a>
+      </nav>
+
+      <div class="fav-rail" id="fav-rail">
+        <div class="fav-rail-head">
+          <span>Favoritos</span>
+          <a href="#/favoritos" class="fav-rail-all">ver todos</a>
+        </div>
+        <div class="fav-rail-list" id="fav-rail-list"></div>
+        <div class="fav-rail-empty" id="fav-rail-empty">Favorite processos para acompanhá-los aqui.</div>
+      </div>
+
+      <div class="side-bottom">
+        <div class="db-status" id="db-status">
+          <span class="dot"></span><span id="db-status-text">conectando…</span>
+        </div>
+        <div class="theme-switch" role="group" aria-label="Tema">
+          <button data-tema="light" title="Claro" aria-label="Claro">
+            <svg viewBox="0 0 20 20" class="ico"><circle cx="10" cy="10" r="3.4" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.2 4.2l1.4 1.4M14.4 14.4l1.4 1.4M15.8 4.2l-1.4 1.4M5.6 14.4l-1.4 1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </button>
+          <button data-tema="dark" title="Escuro" aria-label="Escuro">
+            <svg viewBox="0 0 20 20" class="ico"><path d="M16 11.5A6.5 6.5 0 1 1 8.5 4 5 5 0 0 0 16 11.5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          </button>
+          <button data-tema="system" title="Sistema" aria-label="Sistema">
+            <svg viewBox="0 0 20 20" class="ico"><rect x="3" y="4" width="14" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 16h6M10 13v3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Conteúdo -->
+    <main class="main" id="main">
+      <div id="view" class="view"><!-- renderizado por app.js --></div>
+    </main>
+  </div>
+
+  <!-- ===================== TWEAKS ===================== -->
+  <div id="tweaks" class="tweaks" hidden>
+    <div class="tweaks-head">
+      <span>Tweaks</span>
+      <button id="tweaks-close" aria-label="Fechar">✕</button>
+    </div>
+    <div class="tweaks-body" id="tweaks-body"><!-- preenchido por app.js --></div>
+  </div>
+
+  <!-- toasts -->
+  <div id="toasts" class="toasts"></div>
+  <datalist id="adv-datalist"></datalist>
+
+  <script src="services.js"></script>
+  <script src="store.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

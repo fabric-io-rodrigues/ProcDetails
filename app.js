@@ -1,0 +1,1277 @@
+/* ============================================================================
+   app.js — UI, roteamento por hash e telas. Vanilla JS.
+   Depende de: Services (services.js), Store (store.js)
+   ============================================================================ */
+(function () {
+  'use strict';
+
+  /* ============================ utilidades ============================== */
+  const $  = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const view = () => $('#view');
+
+  function el(tag, attrs = {}, children) {
+    const n = document.createElement(tag);
+    for (const k in attrs) {
+      if (k === 'class') n.className = attrs[k];
+      else if (k === 'html') n.innerHTML = attrs[k];
+      else if (k === 'text') n.textContent = attrs[k];
+      else if (k.startsWith('on') && typeof attrs[k] === 'function') n.addEventListener(k.slice(2), attrs[k]);
+      else if (attrs[k] != null) n.setAttribute(k, attrs[k]);
+    }
+    if (children != null) (Array.isArray(children) ? children : [children]).forEach((c) => {
+      if (c == null) return;
+      n.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+    });
+    return n;
+  }
+  const esc = (s) => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  /* ---- paleta suave determinística (avatares de advogados e tags) ---- */
+  const SOFT_PALETTE = ['#6366F1', '#0E9F8E', '#C77D1A', '#D9456E', '#8B5CF6', '#2E8BD6', '#CC5A3A', '#3C9A5F', '#0E8CA8', '#B5559E'];
+  function hashStr(s) { let h = 0; const str = String(s || '').toLowerCase(); for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0; return h; }
+  function colorFor(s) { return SOFT_PALETTE[hashStr(s) % SOFT_PALETTE.length]; }
+  function tagChip(t, extraClass) {
+    const c = el('span', { class: 'chip tag' + (extraClass ? ' ' + extraClass : ''), text: t });
+    c.style.setProperty('--c', colorFor(t));
+    return c;
+  }
+
+  function toast(msg) {
+    const t = el('div', { class: 'toast', text: msg });
+    $('#toasts').appendChild(t);
+    setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity .3s'; setTimeout(() => t.remove(), 300); }, 2200);
+  }
+
+  /* ------------------------- modal de tags ----------------------------- */
+  function openTagsModal(titulo, currentTags, onSave) {
+    let tags = [...(currentTags || [])];
+    const overlay = el('div', { class: 'modal-overlay' });
+    const card = el('div', { class: 'modal-card' });
+    card.appendChild(el('h3', { class: 'modal-title', text: titulo }));
+    card.appendChild(el('p', { class: 'modal-sub', text: 'Pressione Enter ou vírgula para adicionar. Backspace remove a última.' }));
+
+    const tagInput = el('div', { class: 'tag-input' });
+    const field = el('input', { class: 'tag-input-field', type: 'text', placeholder: 'Adicionar tag…' });
+    tagInput.appendChild(field);
+    card.appendChild(tagInput);
+
+    const sugg = el('div', { class: 'tag-sugg' });
+    card.appendChild(sugg);
+
+    function renderChips() {
+      [...tagInput.querySelectorAll('.tag-chip')].forEach((n) => n.remove());
+      tags.forEach((t, i) => {
+        const c = el('span', { class: 'tag-chip' });
+        c.style.setProperty('--c', colorFor(t));
+        c.appendChild(el('span', { text: t }));
+        const x = el('button', { class: 'tx', type: 'button', text: '✕' });
+        x.addEventListener('click', () => { tags.splice(i, 1); renderChips(); renderSugg(); field.focus(); });
+        c.appendChild(x);
+        tagInput.insertBefore(c, field);
+      });
+    }
+    function addTag(v) { v = (v || '').trim(); if (v && !tags.includes(v)) { tags.push(v); renderChips(); renderSugg(); } }
+    async function renderSugg() {
+      let all = []; try { all = await Store.todasTags(); } catch (e) {}
+      sugg.innerHTML = '';
+      const avail = all.filter((t) => !tags.includes(t));
+      if (!avail.length) return;
+      sugg.appendChild(el('span', { class: 'tag-sugg-label', text: 'Existentes:' }));
+      avail.slice(0, 14).forEach((t) => {
+        const b = el('button', { class: 'tag-sugg-chip', type: 'button', text: t });
+        b.addEventListener('click', () => { addTag(t); field.focus(); });
+        sugg.appendChild(b);
+      });
+    }
+    field.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(field.value); field.value = ''; }
+      else if (e.key === 'Backspace' && !field.value && tags.length) { tags.pop(); renderChips(); renderSugg(); }
+    });
+
+    const acts = el('div', { class: 'modal-actions' });
+    const cancel = el('button', { class: 'btn', type: 'button', text: 'Cancelar' });
+    const save = el('button', { class: 'btn primary', type: 'button', text: 'Salvar' });
+    acts.append(cancel, save);
+    card.appendChild(acts);
+
+    function close() { overlay.classList.remove('show'); document.removeEventListener('keydown', onKey); setTimeout(() => overlay.remove(), 160); }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    cancel.addEventListener('click', close);
+    save.addEventListener('click', () => { addTag(field.value); field.value = ''; onSave(tags); close(); });
+    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
+    document.addEventListener('keydown', onKey);
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    renderChips(); renderSugg();
+    requestAnimationFrame(() => overlay.classList.add('show'));
+    setTimeout(() => field.focus(), 40);
+  }
+
+  /* ------------------------------- datas ------------------------------- */
+  const MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  const DIAS = ['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'];
+  function parseISO(s) {
+    if (!s) return null;
+    const m = String(s).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    return new Date(+m[1], +m[2] - 1, +m[3]);
+  }
+  function fmtData(s) { const d = parseISO(s); if (!d) return '—'; return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`; }
+  function fmtDiaMes(s) { const d = parseISO(s); if (!d) return '—'; return `${String(d.getDate()).padStart(2,'0')} ${MESES[d.getMonth()]}`; }
+  function hojeISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+  function diffDias(s) {
+    const d = parseISO(s); if (!d) return null;
+    const h = new Date(); h.setHours(0,0,0,0);
+    return Math.round((d - h) / 86400000);
+  }
+  function relData(s) {
+    const n = diffDias(s); if (n == null) return '';
+    if (n === 0) return 'hoje';
+    if (n === 1) return 'amanhã'; if (n === -1) return 'ontem';
+    if (n < 0) return `há ${-n} dias`;
+    return `em ${n} dias`;
+  }
+
+  function fmtCNJ(numero, cnj) {
+    if (cnj && /\d{7}-\d{2}/.test(cnj)) return cnj;
+    const d = String(numero || '').replace(/\D/g, '');
+    if (d.length === 20) return `${d.slice(0,7)}-${d.slice(7,9)}.${d.slice(9,13)}.${d.slice(13,14)}.${d.slice(14,16)}.${d.slice(16)}`;
+    return numero || '—';
+  }
+
+  function parseAdvogados(str) {
+    if (!str) return [];
+    return str.split('|').map((s) => s.trim()).filter(Boolean).map((s) => {
+      const m = s.match(/^(.*?)\s*\(([^)]*\d[^)]*)\)\s*$/);
+      return m ? { nome: m[1].trim(), oab: m[2].trim() } : { nome: s, oab: '' };
+    });
+  }
+  function parsePartes(str) {
+    if (!str) return [];
+    return str.split('|').map((s) => s.trim()).filter(Boolean).map((s) => {
+      const m = s.match(/^(.*?)\s*\(([^)]*)\)\s*$/);
+      return m ? { nome: m[1].trim(), polo: m[2].trim() } : { nome: s, polo: '' };
+    });
+  }
+
+  /* ------------------------------ badges ------------------------------- */
+  function badgesProc(p) {
+    const wrap = el('span', { class: 'badges' });
+    const add = (cls, label, n) => { if (n > 0) wrap.appendChild(el('span', { class: 'badge ' + cls, html: `${label}<span class="n">${n}</span>` })); };
+    add('djen', 'DJEN', p.n_comunicacoes);
+    add('tjrj', 'TJRJ', p.n_movimentos_tj);
+    add('mprj', 'MPRJ', p.n_movimentos_mp);
+    add('evento', 'Evento', p.n_eventos_ia);
+    return wrap;
+  }
+
+  /* ============================ estado global ========================== */
+  const State = {
+    favSet: new Set(),
+    favData: new Map(),
+    classes: [],
+    total: 0,
+    tweaks: Object.assign({ listLayout: 'tabela', accent: '#3D4ED6', density: 'denso', mostrarAssunto: true }, window.TWEAK_DEFAULTS || {}),
+    suppressRoute: false,
+  };
+
+  async function carregarFavoritos() {
+    const favs = await Store.listarFavoritos();
+    State.favSet = new Set(favs.map((f) => f.numero));
+    State.favData = new Map(favs.map((f) => [f.numero, f]));
+    const c = $('#fav-count');
+    if (favs.length) { c.hidden = false; c.textContent = favs.length; } else c.hidden = true;
+    renderFavRail(favs);
+  }
+
+  function renderFavRail(favs) {
+    const list = $('#fav-rail-list'); const empty = $('#fav-rail-empty');
+    if (!list) return;
+    list.innerHTML = '';
+    if (!favs.length) { empty.style.display = 'block'; return; }
+    empty.style.display = 'none';
+    favs.forEach((f) => {
+      const a = el('div', { class: 'fav-mini' });
+      a.addEventListener('click', () => go(`#/processo/${f.numero}`));
+      const cnj = el('div', { class: 'fm-cnj' });
+      cnj.innerHTML = '<svg class="fm-star" viewBox="0 0 20 20" width="11" height="11" fill="currentColor"><path d="M10 2.6l2.2 4.5 5 .7-3.6 3.5.9 5-4.5-2.4L5.5 16.8l.9-5L2.8 8.3l5-.7z"/></svg>';
+      cnj.appendChild(el('span', { text: f.cnj || fmtCNJ(f.numero) }));
+      a.appendChild(cnj);
+      if (f.classe) a.appendChild(el('div', { class: 'fm-sub', text: f.classe }));
+      if (f.tags && f.tags.length) {
+        const tg = el('div', { class: 'fm-tags' });
+        f.tags.slice(0, 4).forEach((t) => { const tc = el('span', { class: 'fm-tag', text: t }); tc.style.setProperty('--c', colorFor(t)); tg.appendChild(tc); });
+        a.appendChild(tg);
+      }
+      list.appendChild(a);
+    });
+  }
+
+  /* ============================ favoritar ============================== */
+  async function toggleFav(p, btn) {
+    const numero = p.numero;
+    if (State.favSet.has(numero)) {
+      await Store.removerFavorito(numero);
+      State.favSet.delete(numero); State.favData.delete(numero);
+      toast('Removido dos favoritos');
+    } else {
+      const rec = await Store.adicionarFavorito({ numero, cnj: fmtCNJ(p.numero, p.cnj), classe: p.classe, tags: [] });
+      State.favSet.add(numero); State.favData.set(numero, rec);
+      toast('Adicionado aos favoritos');
+    }
+    await carregarFavoritos();
+    if (btn) btn.classList.toggle('on', State.favSet.has(numero));
+    document.dispatchEvent(new CustomEvent('fav-changed', { detail: { numero } }));
+  }
+
+  function starBtn(p) {
+    const on = State.favSet.has(p.numero);
+    const b = el('button', { class: 'star' + (on ? ' on' : ''), title: on ? 'Desfavoritar' : 'Favoritar', 'aria-label': 'Favoritar' });
+    b.innerHTML = `<svg viewBox="0 0 20 20" fill="${on ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M10 2.6l2.2 4.5 5 .7-3.6 3.5.9 5-4.5-2.4L5.5 16.8l.9-5L2.8 8.3l5-.7z"/></svg>`;
+    b.addEventListener('click', (e) => { e.stopPropagation(); toggleFav(p, b).then(() => { b.querySelector('svg').setAttribute('fill', State.favSet.has(p.numero) ? 'currentColor' : 'none'); }); });
+    return b;
+  }
+
+  /* ====================== render lista de processos ==================== */
+  function renderListaProcessos(rows, container) {
+    container.innerHTML = '';
+    if (!rows.length) {
+      container.appendChild(emptyState('Nenhum processo encontrado', 'Ajuste a busca ou os filtros para ver resultados.'));
+      return;
+    }
+    const layout = State.tweaks.listLayout;
+    if (layout === 'cards') return container.appendChild(listaCards(rows));
+    if (layout === 'compacta') return container.appendChild(listaCompacta(rows));
+    return container.appendChild(listaTabela(rows));
+  }
+
+  function listaTabela(rows) {
+    const wrap = el('div', { class: 'list-wrap' });
+    const t = el('table', { class: 'ptable' });
+    t.innerHTML = `<thead><tr>
+      <th class="col-star"></th>
+      <th>Processo (CNJ)</th>
+      <th>Classe / Órgão</th>
+      <th>Atividade</th>
+      <th>Última mov.</th>
+    </tr></thead>`;
+    const tb = el('tbody');
+    rows.forEach((p) => {
+      const tr = el('tr');
+      tr.addEventListener('click', () => go(`#/processo/${p.numero}`));
+      const tdStar = el('td', { class: 'col-star' }); tdStar.appendChild(starBtn(p));
+      const tdCnj = el('td', {}, el('span', { class: 'cnj', text: fmtCNJ(p.numero, p.cnj) }));
+      const tdCls = el('td');
+      tdCls.appendChild(el('div', { class: 'cell-classe', text: p.classe || '—' }));
+      tdCls.appendChild(el('div', { class: 'cell-sub', text: p.orgao || '' }));
+      const tdAct = el('td', {}, badgesProc(p));
+      const tdDate = el('td');
+      const dt = el('span', { class: 'cell-date' });
+      dt.appendChild(document.createTextNode(fmtData(p.data_ultima_com || p.data_ultimo_mov)));
+      const rel = relData(p.data_ultima_com || p.data_ultimo_mov);
+      if (rel) dt.appendChild(el('span', { class: 'rel', text: rel }));
+      tdDate.appendChild(dt);
+      tr.append(tdStar, tdCnj, tdCls, tdAct, tdDate);
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb); wrap.appendChild(t);
+    return wrap;
+  }
+
+  function listaCards(rows) {
+    const grid = el('div', { class: 'cards' });
+    rows.forEach((p) => {
+      const c = el('div', { class: 'pcard' });
+      c.addEventListener('click', () => go(`#/processo/${p.numero}`));
+      const top = el('div', { class: 'pc-top' });
+      top.appendChild(el('span', { class: 'cnj', text: fmtCNJ(p.numero, p.cnj) }));
+      const s = starBtn(p); top.appendChild(s);
+      c.appendChild(top);
+      c.appendChild(el('div', { class: 'pc-classe', text: p.classe || '—' }));
+      c.appendChild(el('div', { class: 'pc-org', text: p.orgao || '' }));
+      const foot = el('div', { class: 'pc-foot' });
+      foot.appendChild(badgesProc(p));
+      foot.appendChild(el('span', { class: 'pc-date', text: fmtData(p.data_ultima_com || p.data_ultimo_mov) }));
+      c.appendChild(foot);
+      grid.appendChild(c);
+    });
+    return grid;
+  }
+
+  function listaCompacta(rows) {
+    const wrap = el('div', { class: 'compact-list' });
+    rows.forEach((p) => {
+      const r = el('div', { class: 'crow' });
+      r.addEventListener('click', () => go(`#/processo/${p.numero}`));
+      const st = starBtn(p); st.style.flex = 'none';
+      r.appendChild(st);
+      r.appendChild(el('span', { class: 'cnj', text: fmtCNJ(p.numero, p.cnj) }));
+      const mid = el('div', { class: 'crow-mid' });
+      mid.appendChild(el('div', { class: 't', text: p.classe || '—' }));
+      mid.appendChild(el('div', { class: 's', text: p.orgao || '' }));
+      r.appendChild(mid);
+      r.appendChild(badgesProc(p));
+      r.appendChild(el('span', { class: 'cell-date', text: fmtData(p.data_ultima_com || p.data_ultimo_mov) }));
+      wrap.appendChild(r);
+    });
+    return wrap;
+  }
+
+  function emptyState(titulo, msg, icon) {
+    const e = el('div', { class: 'empty' });
+    e.innerHTML = `<svg class="em-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">${icon || '<path d="M4 5h16M4 12h16M4 19h10"/>'}</svg><h3>${esc(titulo)}</h3><p>${esc(msg)}</p>`;
+    return e;
+  }
+
+  /* ============================== TELA 1: lista ======================== */
+  function screenLista(params) {
+    const q = params.q || '';
+    const v = view();
+    v.innerHTML = '';
+    setActiveNav(q ? 'lista' : 'lista');
+
+    const top = el('div', { class: 'topbar' });
+    const row = el('div', { class: 'topbar-row' });
+    row.appendChild(el('h1', { class: 'page-title', text: 'Processos' }));
+    const meta = el('span', { class: 'page-sub' }); meta.id = 'lista-meta';
+    row.appendChild(meta);
+    top.appendChild(row);
+
+    const tools = el('div', { class: 'topbar-row', style: 'margin-top:14px;' });
+    const field = el('div', { class: 'field', style: 'flex:1; max-width:520px;' });
+    field.innerHTML = `<svg class="ico-search" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4" stroke-linecap="round"/></svg>`;
+    const input = el('input', { class: 'input', type: 'search', placeholder: 'Buscar em processos, comunicações e movimentos…', value: q });
+    field.appendChild(input);
+    tools.appendChild(field);
+
+    const selClasse = el('select', { class: 'input', style: 'width:auto; min-width:170px; max-width:260px;' });
+    selClasse.appendChild(el('option', { value: '', text: 'Todas as classes' }));
+    State.classes.forEach((c) => selClasse.appendChild(el('option', { value: c.classe, text: `${c.classe} (${c.n})` })));
+    selClasse.value = params.classe || '';
+    tools.appendChild(selClasse);
+
+    const togFav = el('div', { class: 'toggle', tabindex: '0' });
+    togFav.innerHTML = `<span class="sw"></span><span>Só favoritos</span>`;
+    tools.appendChild(togFav);
+    top.appendChild(tools);
+    v.appendChild(top);
+
+    const content = el('div', { class: 'content' });
+    const results = el('div'); results.id = 'lista-results';
+    content.appendChild(results);
+    v.appendChild(content);
+
+    let soFav = false;
+    let curQ = q, curClasse = selClasse.value;
+
+    function run() {
+      let rows = curQ.trim() ? Services.buscaGeral(curQ) : Services.listarProcessos({ classe: curClasse });
+      if (curQ.trim() && curClasse) rows = rows.filter((r) => r.classe === curClasse);
+      if (soFav) rows = rows.filter((r) => State.favSet.has(r.numero));
+      meta.textContent = `${rows.length} de ${State.total}`;
+      renderListaProcessos(rows, results);
+    }
+
+    let deb;
+    input.addEventListener('input', () => {
+      clearTimeout(deb);
+      deb = setTimeout(() => {
+        curQ = input.value;
+        const h = curQ.trim() ? `#/buscar?q=${encodeURIComponent(curQ.trim())}` : '#/';
+        State.suppressRoute = true; location.hash = h; setTimeout(() => State.suppressRoute = false, 0);
+        run();
+      }, 400);
+    });
+    selClasse.addEventListener('change', () => { curClasse = selClasse.value; run(); });
+    togFav.addEventListener('click', () => { soFav = !soFav; togFav.classList.toggle('on', soFav); run(); });
+
+    run();
+    if (q) setTimeout(() => input.focus(), 30);
+  }
+
+  /* ============================== TELA 2: detalhe ====================== */
+  function poloClasse(polo) {
+    const s = (polo || '').toLowerCase();
+    if (s.includes('ativo') || s.includes('autor') || s.includes('exequente') || s.includes('requerente') || s.includes('impetrante') || s.includes('agravante') || s.includes('apelante')) return 'ativo';
+    if (s.includes('passivo') || s.includes('réu') || s.includes('reu') || s.includes('executad') || s.includes('requerid') || s.includes('impetrad') || s.includes('agravad') || s.includes('apelad')) return 'passivo';
+    return 'outro';
+  }
+  const POLO_LABEL = { ativo: 'Polo ativo', passivo: 'Polo passivo', outro: 'Demais partes' };
+
+  function screenDetalhe(numero, sub) {
+    const v = view();
+    const p = Services.obterProcesso(numero);
+    if (!p) {
+      v.innerHTML = '';
+      const e = emptyState('Processo não encontrado', `Não há processo com o número ${numero} no banco.`, '<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>');
+      const back = el('a', { class: 'btn', href: '#/', style: 'margin-top:18px; display:inline-flex;', text: '← Voltar para processos' });
+      e.appendChild(back);
+      const wrap = el('div', { class: 'content' }); wrap.appendChild(e); v.appendChild(wrap);
+      return;
+    }
+    v.innerHTML = '';
+
+    /* ---------------- cabeçalho ---------------- */
+    const head = el('div', { class: 'detail-head' });
+    head.appendChild(el('a', { class: 'back-link', href: '#/', html: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 3L5 8l5 5" stroke-linecap="round" stroke-linejoin="round"/></svg> Processos' }));
+
+    const main = el('div', { class: 'dh-main' });
+    const title = el('div', { class: 'dh-title' });
+    title.appendChild(el('div', { class: 'dh-cnj', text: fmtCNJ(p.numero, p.cnj) }));
+    title.appendChild(el('div', { class: 'dh-classe', text: p.classe || '—' }));
+    const dmeta = el('div', { class: 'dh-meta' });
+    if (p.orgao) dmeta.appendChild(el('span', { text: p.orgao }));
+    if (p.assunto) dmeta.appendChild(el('span', { text: '· ' + p.assunto }));
+    title.appendChild(dmeta);
+    main.appendChild(title);
+
+    const actions = el('div', { class: 'dh-actions' });
+    const favOn = State.favSet.has(p.numero);
+    const favBtn = el('button', { class: 'btn' + (favOn ? ' active' : '') });
+    favBtn.innerHTML = `<svg class="ico" viewBox="0 0 20 20" fill="${favOn ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M10 2.6l2.2 4.5 5 .7-3.6 3.5.9 5-4.5-2.4L5.5 16.8l.9-5L2.8 8.3l5-.7z"/></svg> <span>${favOn ? 'Favoritado' : 'Favoritar'}</span>`;
+    const tagBtn = el('button', { class: 'btn', html: '<svg class="ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3h6l8 8-6 6-8-8V3z" stroke-linejoin="round"/><circle cx="6.5" cy="6.5" r="1.2" fill="currentColor"/></svg> <span>Tags</span>' });
+    const printBtn = el('button', { class: 'btn icon', title: 'Imprimir', html: '<svg class="ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 8V3h8v5M6 14H4v-4h12v4h-2M6 12h8v5H6z"/></svg>' });
+    printBtn.addEventListener('click', () => window.print());
+    favBtn.addEventListener('click', async () => {
+      await toggleFav(p, null);
+      const on = State.favSet.has(p.numero);
+      favBtn.classList.toggle('active', on);
+      favBtn.querySelector('svg').setAttribute('fill', on ? 'currentColor' : 'none');
+      favBtn.querySelector('span').textContent = on ? 'Favoritado' : 'Favoritar';
+      renderTagCard();
+    });
+    tagBtn.addEventListener('click', () => {
+      if (!State.favSet.has(p.numero)) { toggleFav(p, null).then(() => { favBtn.classList.add('active'); favBtn.querySelector('svg').setAttribute('fill','currentColor'); favBtn.querySelector('span').textContent='Favoritado'; openTags(p); }); }
+      else openTags(p);
+    });
+    actions.append(favBtn, tagBtn, printBtn);
+    main.appendChild(actions);
+    head.appendChild(main);
+    v.appendChild(head);
+
+    /* ---------------- grid 2 colunas ---------------- */
+    const grid = el('div', { class: 'detail-grid' });
+    const mainCol = el('div', { class: 'detail-main' });
+    const rail = el('aside', { class: 'detail-rail' });
+    grid.append(mainCol, rail);
+    v.appendChild(grid);
+
+    const totalMov = (p.n_movimentos_tj || 0) + (p.n_movimentos_mp || 0);
+    const tabsDef = [
+      { id: 'tudo',         label: 'Tudo',         n: totalMov + (p.n_comunicacoes || 0) + (p.n_eventos_ia || 0), always: true },
+      { id: 'movimentos',   label: 'Movimentos',   n: totalMov },
+      { id: 'comunicacoes', label: 'Comunicações', n: p.n_comunicacoes || 0 },
+      { id: 'eventos',      label: 'Eventos',      n: p.n_eventos_ia || 0 },
+    ].filter((t) => t.always || t.n > 0);
+    const tabs = el('div', { class: 'tabs' });
+    tabsDef.forEach((t) => tabs.appendChild(el('button', { class: 'tab', 'data-tab': t.id, html: `${t.label}<span class="cnt">${t.n}</span>` })));
+    mainCol.appendChild(tabs);
+
+    const searchRow = el('div', { class: 'detail-search' });
+    const fld = el('div', { class: 'field' });
+    fld.innerHTML = `<svg class="ico-search" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4" stroke-linecap="round"/></svg>`;
+    const searchInput = el('input', { class: 'input', type: 'search', placeholder: 'Buscar nesta linha do tempo…' });
+    fld.appendChild(searchInput);
+    searchRow.appendChild(fld);
+    mainCol.appendChild(searchRow);
+
+    const body = el('div', { class: 'detail-body' });
+    mainCol.appendChild(body);
+
+    const printHead = el('div', { class: 'print-head' });
+    printHead.innerHTML = `<div class="ph-cnj">${esc(fmtCNJ(p.numero, p.cnj))}</div><div class="ph-meta">${esc(p.classe||'')} · ${esc(p.orgao||'')} — gerado em ${fmtData(hojeISO())}</div>`;
+    v.insertBefore(printHead, v.firstChild);
+
+    const validTabs = new Set(tabsDef.map((t) => t.id));
+    let aba = (sub && sub.tab && validTabs.has(sub.tab)) ? sub.tab : 'tudo';
+    let filtro = '';
+    function activate(tab) {
+      aba = tab;
+      $$('.tab', tabs).forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+      Store.setPref('ultima_aba_processo', tab);
+      let panel = $('#tab-panel');
+      if (!panel) { panel = el('div', { id: 'tab-panel' }); body.appendChild(panel); }
+      panel.innerHTML = '';
+      panel.appendChild(renderTab(tab, p, sub, filtro));
+    }
+    $$('.tab', tabs).forEach((b) => b.addEventListener('click', () => { history.replaceState(null, '', `#/processo/${numero}`); activate(b.dataset.tab); }));
+    let debS;
+    searchInput.addEventListener('input', () => { clearTimeout(debS); debS = setTimeout(() => { filtro = searchInput.value; activate(aba); }, 250); });
+    activate(aba);
+
+    const printAll = el('div', { class: 'print-only' });
+    printAll.appendChild(renderTab('tudo', p, { expandAll: true }, ''));
+    body.appendChild(printAll);
+
+    /* ---------------- rail ---------------- */
+    const tagCard = el('div', { class: 'rail-card' });
+    function renderTagCard() {
+      const rec = State.favData.get(p.numero);
+      tagCard.innerHTML = '';
+      if (!rec || !rec.tags || !rec.tags.length) { tagCard.style.display = 'none'; return; }
+      tagCard.style.display = 'block';
+      tagCard.appendChild(el('h4', { text: 'Tags' }));
+      const chips = el('div', { class: 'chips' });
+      rec.tags.forEach((t) => chips.appendChild(tagChip(t)));
+      tagCard.appendChild(chips);
+    }
+    function openTags(proc) {
+      const rec = State.favData.get(proc.numero) || { tags: [] };
+      openTagsModal('Tags · ' + fmtCNJ(proc.numero, proc.cnj), rec.tags || [], (tags) => {
+        Store.atualizarTags(proc.numero, tags).then((r) => { if (r) State.favData.set(proc.numero, r); renderTagCard(); carregarFavoritos(); toast('Tags atualizadas'); });
+      });
+    }
+
+    const resumo = el('div', { class: 'rail-card' });
+    resumo.appendChild(el('h4', { text: 'Resumo do processo' }));
+    const facts = el('div', { class: 'rail-facts' });
+    const addFact = (k, val, mono) => { if (!val) return; const f = el('div', { class: 'rail-fact' }); f.appendChild(el('span', { class: 'k', text: k })); f.appendChild(el('span', { class: 'v' + (mono ? ' mono' : ''), text: val })); facts.appendChild(f); };
+    addFact('Órgão', p.orgao);
+    addFact('Assunto', p.assunto);
+    addFact('Rito', p.desc_rito);
+    addFact('Nº MP', p.numero_mp, true);
+    addFact('Cód. TJRJ', p.codigo_tjrj, true);
+    addFact('Última com.', fmtData(p.data_ultima_com), true);
+    addFact('Último mov.', fmtData(p.data_ultimo_mov), true);
+    resumo.appendChild(facts);
+    const badgeRow = el('div', { class: 'rail-badges' }); badgeRow.appendChild(badgesProc(p)); resumo.appendChild(badgeRow);
+    rail.appendChild(resumo);
+
+    renderTagCard();
+    rail.appendChild(tagCard);
+
+    const partes = parsePartes(p.partes);
+    if (partes.length) {
+      const card = el('div', { class: 'rail-card' });
+      card.appendChild(el('h4', { text: `Partes (${partes.length})` }));
+      const grupos = { ativo: [], passivo: [], outro: [] };
+      partes.forEach((x) => grupos[poloClasse(x.polo)].push(x));
+      ['ativo', 'passivo', 'outro'].forEach((g) => {
+        if (!grupos[g].length) return;
+        const gr = el('div', { class: 'polo-group' });
+        gr.appendChild(el('div', { class: 'polo-label ' + g, text: POLO_LABEL[g] }));
+        grupos[g].forEach((x) => gr.appendChild(el('div', { class: 'polo-parte', text: x.nome })));
+        card.appendChild(gr);
+      });
+      rail.appendChild(card);
+    }
+
+    const advs = parseAdvogados(p.advogados);
+    if (advs.length) {
+      const card = el('div', { class: 'rail-card' });
+      card.appendChild(el('h4', { text: `Advogados (${advs.length})` }));
+      const chips = el('div', { class: 'chips' });
+      advs.slice(0, 16).forEach((a) => {
+        const c = el('span', { class: 'chip click' });
+        c.appendChild(el('span', { text: a.nome }));
+        if (a.oab) c.appendChild(el('span', { class: 'oab', text: a.oab.replace(/^OAB[\s/]*/i, '') }));
+        c.addEventListener('click', () => go(`#/advogado?q=${encodeURIComponent(a.nome)}`));
+        chips.appendChild(c);
+      });
+      if (advs.length > 16) chips.appendChild(el('span', { class: 'chip', text: `+${advs.length - 16}` }));
+      card.appendChild(chips);
+      rail.appendChild(card);
+    }
+  }
+
+  /* ---- ícones e helpers da linha do tempo ---- */
+  const TL_ICON = {
+    tjrj: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 8l5-5 3 3-5 5zM6 6l3 3M11 11l5 5M8.5 8.5l3 3M3 17h8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    mprj: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 2v16M5 6h10M5 6l-2.5 5h5zM15 6l2.5 5h-5z" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    djen: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="14" height="11" rx="1.5"/><path d="M3.5 6l6.5 5 6.5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    evento: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="14" height="13" rx="2"/><path d="M3 8h14M7 2v3M13 2v3" stroke-linecap="round"/></svg>',
+    pdf: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 2h6l4 4v12H6z" stroke-linejoin="round"/><path d="M12 2v4h4" stroke-linejoin="round"/><path d="M8 12h4M8 15h3" stroke-linecap="round"/></svg>',
+    ext: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 4H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-3M12 3h5v5M9 11l8-8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  };
+
+  function tlItem(dataISO, dotClass, bodyEl) {
+    const item = el('div', { class: 'tl-item' });
+    const date = el('div', { class: 'tl-date' });
+    date.appendChild(el('div', { class: 'd', text: fmtDiaMes(dataISO) }));
+    const d = parseISO(dataISO); date.appendChild(el('div', { class: 'y', text: d ? d.getFullYear() : '' }));
+    const track = el('div', { class: 'tl-track' });
+    track.appendChild(el('span', { class: 'tl-dot ' + dotClass }));
+    track.appendChild(bodyEl);
+    item.append(date, track);
+    return item;
+  }
+  function movCardBody(m) {
+    const src = (m.fonte || '').toUpperCase().includes('MP') ? 'mprj' : 'tjrj';
+    const card = el('div', { class: 'tl-card' });
+    const lbl = el('div', { class: 'tl-src ' + src, html: TL_ICON[src] });
+    lbl.appendChild(el('span', { text: 'Movimento · ' + (m.fonte || src.toUpperCase()) }));
+    card.appendChild(lbl);
+    card.appendChild(el('div', { class: 'tl-desc', text: m.descricao || '—' }));
+    if (m.detalhe && m.detalhe.trim()) card.appendChild(el('div', { class: 'tl-detail', text: m.detalhe.trim() }));
+    return { card, src };
+  }
+  function evCardBody(e) {
+    const future = (diffDias(e.data_iso) || -1) >= 0;
+    const card = el('div', { class: 'tl-card' + (future ? ' tl-future' : '') });
+    const lbl = el('div', { class: 'tl-src evento', html: TL_ICON.evento });
+    lbl.appendChild(el('span', { text: future ? 'Evento · ' + relData(e.data_iso) : 'Evento' }));
+    card.appendChild(lbl);
+    card.appendChild(el('div', { class: 'tl-desc', text: e.evento || '—' }));
+    return card;
+  }
+
+  function comCertidaoHref(c) {
+    const h = c.hash || c.hash_certidao;
+    return h ? `https://comunicaapi.pje.jus.br/api/v1/comunicacao/${encodeURIComponent(h)}/certidao` : '';
+  }
+  function comLinkHref(c, p) {
+    const num = c.numero_comunicacao || c.id_comunicacao;
+    if (num) return `https://comunica.pje.jus.br/consulta?numeroComunicacao=${encodeURIComponent(num)}&numeroProcesso=${encodeURIComponent(p.numero)}`;
+    return c.link || '';
+  }
+  function comunicacaoItem(c, p, opts = {}) {
+    const com = el('div', { class: 'com' + (opts.inTimeline ? ' com--tl' : '') });
+    const head = el('div', { class: 'com-head' });
+    head.appendChild(el('span', { class: 'com-date', text: fmtData(c.data_disponibilizacao) }));
+    head.appendChild(el('div', { class: 'com-title', text: c.tipo_comunicacao || 'Comunicação' }));
+    const acts = el('div', { class: 'com-actions' });
+    const cert = comCertidaoHref(c);
+    if (cert) acts.appendChild(el('a', { class: 'com-btn', href: cert, target: '_blank', rel: 'noopener', title: 'Abrir certidão (PDF)', html: TL_ICON.pdf + '<span>Certidão</span>' }));
+    const link = comLinkHref(c, p);
+    if (link) acts.appendChild(el('a', { class: 'com-btn', href: link, target: '_blank', rel: 'noopener', title: 'Abrir no Comunica PJe', html: TL_ICON.ext + '<span>Link</span>' }));
+    head.appendChild(acts);
+    com.appendChild(head);
+
+    const sline = [c.tipo_documento, c.nome_orgao].filter(Boolean).join(' · ');
+    if (sline) com.appendChild(el('div', { class: 'com-sub', text: sline }));
+
+    const isLong = (c.texto_len || 0) > 300;
+    const preview = el('div', { class: 'com-preview' });
+    const txt = (c.preview || '').trim();
+    const previewText = el('span', { class: 'com-preview-text', text: txt + (isLong ? '… ' : '') });
+    preview.appendChild(previewText);
+    com.appendChild(preview);
+
+    const full = el('div', { class: 'com-full' }); full.style.display = 'none';
+    let loaded = false;
+    function expand() {
+      if (!loaded) { full.textContent = Services.obterTextoComunicacao(c.id) || '(texto vazio)'; loaded = true; }
+      full.style.display = 'block'; previewText.style.display = 'none'; if (moreBtn) moreBtn.textContent = 'Recolher texto';
+    }
+    function collapse() { full.style.display = 'none'; previewText.style.display = ''; if (moreBtn) moreBtn.textContent = 'Ver texto completo'; }
+
+    let moreBtn = null;
+    if (isLong) {
+      moreBtn = el('button', { class: 'com-more', text: 'Ver texto completo' });
+      moreBtn.addEventListener('click', () => { full.style.display === 'none' ? expand() : collapse(); });
+      preview.appendChild(document.createTextNode(' '));
+      preview.appendChild(moreBtn);
+      com.appendChild(full);
+    }
+    if (opts.expandAll && isLong) expand();
+    com._expand = isLong ? expand : () => {};
+    return com;
+  }
+
+  const _inc = (s, t) => String(s == null ? '' : s).toLowerCase().includes(t);
+  const movMatch = (m, t) => _inc(m.descricao, t) || _inc(m.detalhe, t) || _inc(m.fonte, t);
+  const comMatch = (c, t) => _inc(c.preview, t) || _inc(c.tipo_comunicacao, t) || _inc(c.tipo_documento, t) || _inc(c.nome_orgao, t);
+  const evMatch = (e, t) => _inc(e.evento, t);
+
+  function renderTab(tab, p, sub, filtro) {
+    const t = (filtro || '').trim().toLowerCase();
+    if (tab === 'tudo') return tabTudo(p, sub, t);
+    if (tab === 'movimentos') return tabMovimentos(p, t);
+    if (tab === 'comunicacoes') return tabComunicacoes(p, sub, t);
+    return tabEventos(p, t);
+  }
+
+  function tabTudo(p, sub, t) {
+    const movs = Services.listarMovimentos(p.numero).map((m) => ({ k: 'mov', data: m.data_iso, m }));
+    const coms = Services.listarComunicacoes(p.numero).map((c) => ({ k: 'com', data: c.data_disponibilizacao, c }));
+    const evs = Services.listarEventos(p.numero).map((e) => ({ k: 'evt', data: e.data_iso, e }));
+    let all = [...movs, ...coms, ...evs];
+    if (t) all = all.filter((x) => x.k === 'mov' ? movMatch(x.m, t) : x.k === 'com' ? comMatch(x.c, t) : evMatch(x.e, t));
+    if (!all.length) return emptyState(t ? 'Nada encontrado' : 'Sem registros', t ? 'Nenhum item corresponde à busca.' : 'Este processo não possui registros.');
+    all.sort((a, b) => { const da = a.data || '', db = b.data || ''; return da < db ? 1 : da > db ? -1 : 0; });
+    const tl = el('div', { class: 'timeline' });
+    const expandId = sub && sub.comId ? String(sub.comId) : null;
+    all.forEach((x) => {
+      if (x.k === 'mov') { const { card, src } = movCardBody(x.m); tl.appendChild(tlItem(x.data, src, card)); }
+      else if (x.k === 'com') {
+        const com = comunicacaoItem(x.c, p, { expandAll: sub && sub.expandAll, inTimeline: true });
+        if (expandId && String(x.c.id) === expandId) { com._expand(); setTimeout(() => com.scrollIntoView({ block: 'center' }), 80); }
+        tl.appendChild(tlItem(x.data, 'djen', com));
+      } else { tl.appendChild(tlItem(x.data, 'evento', evCardBody(x.e))); }
+    });
+    return tl;
+  }
+
+  function tabMovimentos(p, t) {
+    let movs = Services.listarMovimentos(p.numero);
+    if (t) movs = movs.filter((m) => movMatch(m, t));
+    if (!movs.length) return emptyState('Sem movimentos', t ? 'Nenhum movimento corresponde à busca.' : 'Este processo não possui movimentos registrados.');
+    const tl = el('div', { class: 'timeline' });
+    movs.forEach((m) => { const { card, src } = movCardBody(m); tl.appendChild(tlItem(m.data_iso, src, card)); });
+    return tl;
+  }
+
+  function tabComunicacoes(p, sub, t) {
+    let coms = Services.listarComunicacoes(p.numero);
+    if (t) coms = coms.filter((c) => comMatch(c, t));
+    if (!coms.length) return emptyState('Sem comunicações', t ? 'Nenhuma comunicação corresponde à busca.' : 'Não há comunicações (DJEN) para este processo.');
+    const list = el('div', { class: 'com-list' });
+    const expandId = sub && sub.comId ? String(sub.comId) : null;
+    coms.forEach((c) => {
+      const com = comunicacaoItem(c, p, { expandAll: sub && sub.expandAll });
+      if (expandId && String(c.id) === expandId) { com._expand(); setTimeout(() => com.scrollIntoView({ block: 'center' }), 80); }
+      list.appendChild(com);
+    });
+    return list;
+  }
+
+  function tabEventos(p, t) {
+    let evs = Services.listarEventos(p.numero);
+    if (t) evs = evs.filter((e) => evMatch(e, t));
+    if (!evs.length) return emptyState('Sem eventos', t ? 'Nenhum evento corresponde à busca.' : 'Nenhum evento extraído por IA para este processo.');
+    const list = el('div', { class: 'ev-list' });
+    evs.forEach((e) => {
+      const future = (diffDias(e.data_iso) || -1) >= 0;
+      const row = el('div', { class: 'ev' + (future ? ' future' : '') });
+      const dt = el('div');
+      dt.appendChild(el('div', { class: 'ev-date', text: fmtData(e.data_iso) }));
+      if (future) dt.appendChild(el('span', { class: 'ev-flag', text: relData(e.data_iso) }));
+      row.appendChild(dt);
+      row.appendChild(el('div', { class: 'ev-text', text: e.evento || '—' }));
+      list.appendChild(row);
+    });
+    return list;
+  }
+
+  /* ============================== TELA 3: advogado ===================== */
+  function iniciais(nome) {
+    const p = String(nome || '').trim().split(/\s+/);
+    return (((p[0] || '')[0] || '') + ((p.length > 1 ? p[p.length - 1] : '')[0] || '')).toUpperCase() || '?';
+  }
+  function advCard(x) {
+    const c = el('button', { class: 'adv-card' });
+    c.style.setProperty('--c', colorFor(x.key || x.nome));
+    c.appendChild(el('span', { class: 'adv-avatar', text: iniciais(x.nome) }));
+    const info = el('div', { class: 'adv-info' });
+    info.appendChild(el('div', { class: 'adv-name', text: x.nome }));
+    if (x.oab) info.appendChild(el('div', { class: 'adv-oab', text: x.oab.replace(/^OAB[\s/]*/i, '') }));
+    c.appendChild(info);
+    const cnt = el('div', { class: 'adv-count' });
+    cnt.appendChild(el('div', { class: 'num', text: x.n }));
+    cnt.appendChild(el('div', { class: 'lab', text: x.n === 1 ? 'processo' : 'processos' }));
+    c.appendChild(cnt);
+    c.addEventListener('click', () => go('#/advogado?q=' + encodeURIComponent(x.nome)));
+    return c;
+  }
+  function painelRelacionados(nome, rel, inB, onPick) {
+    const card = el('div', { class: 'adv-related' });
+    card.appendChild(el('h3', { text: nome }));
+    card.appendChild(el('div', { class: 'sub', text: `Top ${rel.length} advogados que mais atuam em conjunto — clique para ver os processos em comum` }));
+    const max = rel[0].n_comum || 1;
+    const list = el('div', { class: 'rel-list' });
+    rel.forEach((r, i) => {
+      const it = el('div', { class: 'rel-item' });
+      it.appendChild(el('span', { class: 'rel-rank', text: '#' + (i + 1) }));
+      const nm = el('span', { class: 'rel-name' });
+      nm.appendChild(el('span', { text: r.nome }));
+      if (r.oab) nm.appendChild(el('span', { class: 'oab', text: r.oab.replace(/^OAB[\s/]*/i, '') }));
+      it.appendChild(nm);
+      const bar = el('div', { class: 'rel-bar' }); const fill = el('i'); fill.style.width = Math.round((r.n_comum / max) * 100) + '%'; bar.appendChild(fill); it.appendChild(bar);
+      it.appendChild(el('span', { class: 'rel-num', html: `<b>${r.n_comum}</b> em comum` }));
+      it.addEventListener('click', () => { inB.value = r.nome; onPick(); });
+      list.appendChild(it);
+    });
+    card.appendChild(list);
+    return card;
+  }
+
+  function screenAdvogado(params) {
+    const v = view(); v.innerHTML = ''; setActiveNav('advogado');
+    ensureAdvDatalist();
+    const top = el('div', { class: 'topbar' });
+    top.appendChild(el('div', { class: 'topbar-row', html: '<h1 class="page-title">Advogados</h1><span class="page-sub" id="adv-sub"></span>' }));
+    const tools = el('div', { class: 'adv-toolbar', style: 'margin-top:14px;' });
+    const fA = el('div', { class: 'field', style: 'flex:1; min-width:230px; max-width:340px;' });
+    fA.innerHTML = `<svg class="ico-search" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4" stroke-linecap="round"/></svg>`;
+    const inA = el('input', { class: 'input', type: 'search', list: 'adv-datalist', placeholder: 'Nome ou nº OAB', value: params.q || '' });
+    fA.appendChild(inA);
+    const fB = el('div', { class: 'field', style: 'flex:1; min-width:230px; max-width:340px;' });
+    fB.innerHTML = `<svg class="ico-search" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4" stroke-linecap="round"/></svg>`;
+    const inB = el('input', { class: 'input', type: 'search', list: 'adv-datalist', placeholder: 'E também… (atuam juntos)', value: params.b || '' });
+    fB.appendChild(inB);
+    const btn = el('button', { class: 'btn primary', text: 'Buscar' });
+    const btnAll = el('a', { class: 'btn', href: '#/advogado', text: 'Ver todos' });
+    tools.append(fA, fB, btn, btnAll);
+    top.appendChild(tools);
+    v.appendChild(top);
+
+    const content = el('div', { class: 'content' });
+    const results = el('div'); content.appendChild(results); v.appendChild(content);
+
+    function navTo() {
+      const a = inA.value.trim(), b = inB.value.trim();
+      if (!a) { State.suppressRoute = true; location.hash = '#/advogado'; setTimeout(() => State.suppressRoute = false, 0); render(); return; }
+      const h = '#/advogado?q=' + encodeURIComponent(a) + (b ? '&b=' + encodeURIComponent(b) : '');
+      State.suppressRoute = true; location.hash = h; setTimeout(() => State.suppressRoute = false, 0);
+      render();
+    }
+    btn.addEventListener('click', navTo);
+    [inA, inB].forEach((i) => i.addEventListener('keydown', (e) => { if (e.key === 'Enter') navTo(); }));
+
+    function render() {
+      const a = inA.value.trim(), b = inB.value.trim();
+      results.innerHTML = '';
+      const sub = $('#adv-sub');
+      if (!a) { renderDiretorio(sub); return; }
+      sub.textContent = '';
+      const rel = Services.advogadosRelacionados(a, 5);
+      if (rel.length) results.appendChild(painelRelacionados(a, rel, inB, navTo));
+      const rows = b ? Services.buscarDoisAdvogados(a, b) : Services.buscarPorAdvogado(a);
+      results.appendChild(el('p', { class: 'result-meta', html: b ? `<b>${rows.length}</b> processos com <b>${esc(a)}</b> e <b>${esc(b)}</b>` : `<b>${rows.length}</b> processos com <b>${esc(a)}</b>` }));
+      const cont = el('div'); renderListaProcessos(rows, cont); results.appendChild(cont);
+    }
+
+    function renderDiretorio(sub) {
+      const all = Services.listarAdvogados();
+      sub.textContent = `${all.length.toLocaleString('pt-BR')} advogados na base`;
+      results.appendChild(el('p', { class: 'result-meta', text: 'Mais atuantes primeiro. Clique em um advogado para ver seus processos e parcerias.' }));
+      const grid = el('div', { class: 'adv-grid' });
+      results.appendChild(grid);
+      function paint(term) {
+        grid.innerHTML = '';
+        const t = (term || '').trim().toLowerCase();
+        const list = t ? all.filter((x) => x.nome.toLowerCase().includes(t) || (x.oab || '').toLowerCase().includes(t)) : all;
+        list.slice(0, 400).forEach((x) => grid.appendChild(advCard(x)));
+        if (!list.length) grid.appendChild(emptyState('Nenhum advogado', 'Ajuste o filtro.', '<circle cx="11" cy="9" r="3"/><path d="M5 19c0-3 3-5 6-5s6 2 6 5"/>'));
+      }
+      let deb;
+      inA.oninput = () => { clearTimeout(deb); deb = setTimeout(() => paint(inA.value), 220); };
+      paint('');
+    }
+
+    render();
+    if (!params.q) setTimeout(() => inA.focus(), 30);
+  }
+
+  /* ============================== TELA 4: agenda ======================= */
+  function screenAgenda(params) {
+    const v = view(); v.innerHTML = ''; setActiveNav('agenda');
+    const ref = params.ref || hojeISO();
+
+    const top = el('div', { class: 'topbar' });
+    top.appendChild(el('div', { class: 'topbar-row', html: '<h1 class="page-title">Agenda</h1><span class="page-sub">Próximos prazos e eventos extraídos por IA</span>' }));
+    const ctrls = el('div', { class: 'agenda-ctrls', style: 'margin-top:14px;' });
+    const g1 = el('div', { class: 'ctrl-group' });
+    g1.appendChild(el('label', { text: 'A partir de' }));
+    const inDate = el('input', { class: 'input', type: 'date', value: ref, style: 'width:auto;' });
+    g1.appendChild(inDate);
+    ensureAdvDatalist();
+    const gA = el('div', { class: 'ctrl-group' });
+    gA.appendChild(el('label', { text: 'Advogado' }));
+    const inAdv = el('input', { class: 'input', type: 'search', list: 'adv-datalist', placeholder: 'Filtrar por advogado…', value: params.adv || '' });
+    gA.appendChild(inAdv);
+    const gB = el('div', { class: 'ctrl-group' });
+    gB.appendChild(el('label', { text: 'E também (em comum)' }));
+    const inAdv2 = el('input', { class: 'input', type: 'search', list: 'adv-datalist', placeholder: 'Segundo advogado…', value: params.adv2 || '' });
+    gB.appendChild(inAdv2);
+    ctrls.append(g1, gA, gB);
+    top.appendChild(ctrls);
+    v.appendChild(top);
+
+    const content = el('div', { class: 'content' });
+    const results = el('div'); content.appendChild(results); v.appendChild(content);
+
+    function run() {
+      const r = inDate.value || hojeISO();
+      const advA = inAdv.value.trim(), advB = inAdv2.value.trim();
+      const opts = {}; if (advA) opts.advA = advA; if (advB) opts.advB = advB;
+      let h = `#/agenda?ref=${r}`;
+      if (advA) h += '&adv=' + encodeURIComponent(advA);
+      if (advB) h += '&adv2=' + encodeURIComponent(advB);
+      State.suppressRoute = true; location.hash = h; setTimeout(() => State.suppressRoute = false, 0);
+
+      const futuros = Services.agenda(r, null, opts);
+      const passados = Services.agendaPassada(r, 14, opts);
+      results.innerHTML = '';
+      const filtroTxt = advA ? (advB ? ` · <b>${esc(advA)}</b> &amp; <b>${esc(advB)}</b>` : ` · <b>${esc(advA)}</b>`) : '';
+      if (!futuros.length && !passados.length) {
+        results.appendChild(emptyState('Nada na agenda', advA ? `Sem eventos para ${advA}${advB ? ' e ' + advB : ''} a partir dessa data.` : `Sem eventos futuros a partir de ${fmtData(r)}.`, '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/>'));
+        return;
+      }
+      results.appendChild(el('p', { class: 'result-meta', html: `<b>${futuros.length}</b> eventos futuros a partir de <b>${fmtData(r)}</b>${filtroTxt}` }));
+      const grupos = new Map();
+      passados.forEach((e) => addGrp(grupos, e));
+      futuros.forEach((e) => addGrp(grupos, e));
+      [...grupos.keys()].sort().forEach((dia) => results.appendChild(renderDiaAgenda(dia, grupos.get(dia), r)));
+    }
+    function addGrp(map, e) { if (!map.has(e.data_iso)) map.set(e.data_iso, []); map.get(e.data_iso).push(e); }
+
+    inDate.addEventListener('change', run);
+    let debA;
+    [inAdv, inAdv2].forEach((i) => {
+      i.addEventListener('change', run);
+      i.addEventListener('input', () => { clearTimeout(debA); debA = setTimeout(run, 350); });
+    });
+    run();
+  }
+
+  function renderDiaAgenda(dia, itens, ref) {
+    const d = parseISO(dia);
+    const past = dia < ref;
+    const wrap = el('div', { class: 'agenda-day' + (past ? ' past' : '') });
+    const head = el('div', { class: 'day-head' + (past ? ' past' : '') });
+    head.appendChild(el('span', { class: 'dh-dot' }));
+    head.appendChild(el('span', { class: 'dh-d', text: fmtData(dia) }));
+    head.appendChild(el('span', { class: 'dh-wd', text: d ? DIAS[d.getDay()] : '' }));
+    const rel = relData(dia);
+    if (rel === 'hoje') head.appendChild(el('span', { class: 'today-pill', text: 'HOJE' }));
+    else if (rel) head.appendChild(el('span', { class: 'dh-rel', text: rel }));
+    head.appendChild(el('span', { class: 'ln' }));
+    wrap.appendChild(head);
+    itens.forEach((e) => {
+      const it = el('div', { class: 'ag-item' });
+      it.addEventListener('click', () => go(`#/processo/${e.numero}`));
+      const proc = el('div', { class: 'ag-proc' });
+      proc.appendChild(el('span', { class: 'cnj', text: fmtCNJ(e.numero, e.cnj) }));
+      proc.appendChild(el('div', { class: 's', text: [e.classe, e.orgao].filter(Boolean).join(' · ') }));
+      it.appendChild(proc);
+      it.appendChild(el('div', { class: 'ag-ev', text: e.evento || '—' }));
+      wrap.appendChild(it);
+    });
+    return wrap;
+  }
+
+  /* ============================== TELA 5: favoritos ==================== */
+  async function screenFavoritos() {
+    const v = view(); v.innerHTML = ''; setActiveNav('favoritos');
+    await carregarFavoritos();
+    const favs = await Store.listarFavoritos();
+    const tags = await Store.todasTags();
+
+    const top = el('div', { class: 'topbar' });
+    top.appendChild(el('div', { class: 'topbar-row', html: `<h1 class="page-title">Favoritos</h1><span class="page-sub">${favs.length} processo${favs.length===1?'':'s'}</span>` }));
+    let filtroTag = null;
+    if (tags.length) {
+      const chips = el('div', { class: 'chips', style: 'margin-top:14px;' });
+      const all = el('span', { class: 'chip tag active', text: 'Todas' });
+      chips.appendChild(all);
+      const tagEls = [all];
+      tags.forEach((t) => { const c = tagChip(t); chips.appendChild(c); tagEls.push(c); c._tag = t; });
+      tagEls.forEach((c) => c.addEventListener('click', () => { filtroTag = c._tag || null; tagEls.forEach((x) => x.classList.toggle('active', x === c)); render(); }));
+      top.appendChild(chips);
+    }
+    v.appendChild(top);
+
+    const content = el('div', { class: 'content' });
+    const results = el('div'); content.appendChild(results); v.appendChild(content);
+
+    function render() {
+      results.innerHTML = '';
+      let lista = favs;
+      if (filtroTag) lista = favs.filter((f) => (f.tags || []).includes(filtroTag));
+      if (!lista.length) { results.appendChild(emptyState('Nenhum favorito', filtroTag ? 'Nenhum favorito com essa tag.' : 'Favorite processos na lista ou no detalhe para acompanhá-los aqui.', '<path d="M12 4l2.5 5 5.5.8-4 3.9.9 5.5L12 16.5 7.1 19l.9-5.5-4-3.9L9.5 9z"/>')); return; }
+      lista.forEach((f) => {
+        const p = Services.obterProcesso(f.numero);
+        if (!p) return;
+        const card = el('div', { class: 'pcard', style: 'margin-bottom:12px;' });
+        card.addEventListener('click', (e) => { if (e.target.closest('button')) return; go(`#/processo/${p.numero}`); });
+        const top2 = el('div', { class: 'pc-top' });
+        top2.appendChild(el('span', { class: 'cnj', text: fmtCNJ(p.numero, p.cnj) }));
+        const acts = el('div', { style: 'display:flex; gap:6px;' });
+        const tagB = el('button', { class: 'btn sm', text: 'Tags' });
+        const delB = el('button', { class: 'btn sm', text: 'Remover' });
+        acts.append(tagB, delB); top2.appendChild(acts);
+        card.appendChild(top2);
+        card.appendChild(el('div', { class: 'pc-classe', text: p.classe || '—' }));
+        card.appendChild(el('div', { class: 'pc-org', text: p.orgao || '' }));
+        const foot = el('div', { class: 'pc-foot' });
+        foot.appendChild(badgesProc(p));
+        foot.appendChild(el('span', { class: 'pc-date', text: fmtData(p.data_ultima_com || p.data_ultimo_mov) }));
+        card.appendChild(foot);
+        if ((f.tags || []).length) {
+          const tagsRow = el('div', { class: 'chips', style: 'margin-top:10px;' });
+          f.tags.forEach((t) => tagsRow.appendChild(tagChip(t)));
+          card.appendChild(tagsRow);
+        }
+        delB.addEventListener('click', async (e) => { e.stopPropagation(); await Store.removerFavorito(f.numero); State.favSet.delete(f.numero); await carregarFavoritos(); screenFavoritos(); toast('Removido'); });
+        tagB.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openTagsModal('Tags · ' + fmtCNJ(p.numero, p.cnj), f.tags || [], (tg) => {
+            Store.atualizarTags(f.numero, tg).then(() => screenFavoritos());
+          });
+        });
+        results.appendChild(card);
+      });
+    }
+    render();
+  }
+
+  /* ============================ navegação ============================== */
+  let _advDatalistDone = false;
+  function ensureAdvDatalist() {
+    if (_advDatalistDone) return;
+    _advDatalistDone = true;
+    const dl = $('#adv-datalist'); if (!dl) return;
+    try {
+      Services.listarAdvogados().slice(0, 1200).forEach((x) => dl.appendChild(el('option', { value: x.nome })));
+    } catch (e) { _advDatalistDone = false; }
+  }
+  function go(hash) { location.hash = hash; }
+  function setActiveNav(route) { $$('.nav-item').forEach((a) => a.classList.toggle('active', a.dataset.route === route)); }
+
+  function parseHash() {
+    let h = location.hash.replace(/^#/, '');
+    if (!h || h === '/') return { screen: 'lista', params: {} };
+    const [path, qs] = h.split('?');
+    const params = {};
+    if (qs) qs.split('&').forEach((kv) => { const [k, val] = kv.split('='); params[k] = decodeURIComponent(val || ''); });
+    const parts = path.split('/').filter(Boolean);
+    if (parts[0] === 'processo') {
+      const numero = parts[1];
+      if (parts[2] === 'comunicacao' && parts[3]) return { screen: 'detalhe', numero, sub: { tab: 'comunicacoes', comId: parts[3] } };
+      return { screen: 'detalhe', numero, sub: {} };
+    }
+    if (parts[0] === 'advogado') return { screen: 'advogado', params };
+    if (parts[0] === 'agenda') return { screen: 'agenda', params };
+    if (parts[0] === 'favoritos') return { screen: 'favoritos', params };
+    if (parts[0] === 'buscar') return { screen: 'lista', params };
+    return { screen: 'lista', params: {} };
+  }
+
+  function route() {
+    if (State.suppressRoute) return;
+    const r = parseHash();
+    window.scrollTo && $('#main') && ($('#main').scrollTop = 0);
+    try {
+      if (r.screen === 'detalhe') screenDetalhe(r.numero, r.sub);
+      else if (r.screen === 'advogado') screenAdvogado(r.params);
+      else if (r.screen === 'agenda') screenAgenda(r.params);
+      else if (r.screen === 'favoritos') screenFavoritos();
+      else screenLista(r.params);
+    } catch (e) {
+      console.error(e);
+      view().innerHTML = '';
+      const wrap = el('div', { class: 'content' });
+      wrap.appendChild(emptyState('Erro ao carregar a tela', String(e.message || e), '<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16v.5"/>'));
+      view().appendChild(wrap);
+    }
+  }
+
+  /* ============================== tema ================================= */
+  function aplicarTema(pref) {
+    const dark = pref === 'dark' || (pref === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-tema-pref', pref);
+    $$('.theme-switch button').forEach((b) => b.classList.toggle('active', b.dataset.tema === pref));
+  }
+  function initTema() {
+    const pref = localStorage.getItem('tema') || 'system';
+    aplicarTema(pref);
+    $$('.theme-switch button').forEach((b) => b.addEventListener('click', () => {
+      const t = b.dataset.tema; localStorage.setItem('tema', t); Store.setPref('tema', t); aplicarTema(t);
+    }));
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if ((localStorage.getItem('tema') || 'system') === 'system') aplicarTema('system');
+    });
+  }
+
+  /* ============================== tweaks =============================== */
+  function aplicarTweaks() {
+    const t = State.tweaks;
+    document.documentElement.style.setProperty('--accent', t.accent);
+    $('#app').setAttribute('data-density', t.density);
+  }
+  function persistTweaks(edits) {
+    Object.assign(State.tweaks, edits);
+    try { window.parent.postMessage({ type: '__edit_mode_set_keys', edits }, '*'); } catch (e) {}
+  }
+  function buildTweaksPanel() {
+    const body = $('#tweaks-body');
+    body.innerHTML = '';
+    body.appendChild(segGroup('Layout da lista', [
+      ['tabela', 'Tabela'], ['cards', 'Cards'], ['compacta', 'Compacta'],
+    ], State.tweaks.listLayout, (val) => {
+      persistTweaks({ listLayout: val }); refreshSeg('listLayout', val);
+      if (parseHash().screen === 'lista' || parseHash().screen === 'advogado' || parseHash().screen === 'favoritos') route();
+    }, 'listLayout'));
+    body.appendChild(segGroup('Densidade', [
+      ['denso', 'Denso'], ['confortavel', 'Confortável'],
+    ], State.tweaks.density, (val) => { persistTweaks({ density: val }); aplicarTweaks(); refreshSeg('density', val); }, 'density'));
+    const g = el('div', { class: 'tw-group' });
+    g.appendChild(el('label', { class: 'tw-label', text: 'Cor de destaque' }));
+    const sw = el('div', { class: 'swatches' });
+    ['#3D4ED6', '#0E7C66', '#9333EA', '#C2410C', '#0F172A'].forEach((c) => {
+      const b = el('span', { class: 'swatch' + (c === State.tweaks.accent ? ' active' : ''), style: `background:${c}`, 'data-c': c });
+      b.addEventListener('click', () => { persistTweaks({ accent: c }); aplicarTweaks(); $$('.swatch', sw).forEach((x) => x.classList.toggle('active', x.dataset.c === c)); });
+      sw.appendChild(b);
+    });
+    g.appendChild(sw); body.appendChild(g);
+  }
+  function segGroup(label, opts, cur, onPick, key) {
+    const g = el('div', { class: 'tw-group', 'data-key': key });
+    g.appendChild(el('label', { class: 'tw-label', text: label }));
+    const seg = el('div', { class: 'seg' });
+    opts.forEach(([val, lab]) => {
+      const b = el('button', { class: val === cur ? 'active' : '', 'data-val': val, text: lab });
+      b.addEventListener('click', () => onPick(val));
+      seg.appendChild(b);
+    });
+    g.appendChild(seg);
+    return g;
+  }
+  function refreshSeg(key, val) {
+    const g = $(`.tw-group[data-key="${key}"]`); if (!g) return;
+    $$('.seg button', g).forEach((b) => b.classList.toggle('active', b.dataset.val === val));
+  }
+  function initTweaks() {
+    window.addEventListener('message', (e) => {
+      const d = e.data || {};
+      if (d.type === '__activate_edit_mode') { buildTweaksPanel(); $('#tweaks').hidden = false; }
+      else if (d.type === '__deactivate_edit_mode') { $('#tweaks').hidden = true; }
+    });
+    $('#tweaks-close').addEventListener('click', () => { $('#tweaks').hidden = true; try { window.parent.postMessage({ type: '__edit_mode_dismissed' }, '*'); } catch (e) {} });
+    try { window.parent.postMessage({ type: '__edit_mode_available' }, '*'); } catch (e) {}
+  }
+
+  /* ============================== chrome =============================== */
+  function initChrome() {
+    $('#btn-collapse').addEventListener('click', () => $('#app').classList.toggle('collapsed'));
+    const app = $('#app');
+    const openDrawer = () => app.classList.add('drawer-open');
+    const closeDrawer = () => app.classList.remove('drawer-open');
+    const btnD = $('#btn-drawer'); if (btnD) btnD.addEventListener('click', openDrawer);
+    const scrim = $('#drawer-scrim'); if (scrim) scrim.addEventListener('click', closeDrawer);
+    $$('.nav-item').forEach((a) => a.addEventListener('click', closeDrawer));
+    const railAll = $('.fav-rail-all'); if (railAll) railAll.addEventListener('click', closeDrawer);
+    const favList = $('#fav-rail-list'); if (favList) favList.addEventListener('click', closeDrawer);
+    const brand = $('.brand'); if (brand) brand.addEventListener('click', closeDrawer);
+    window.addEventListener('hashchange', closeDrawer);
+    const btnTM = $('#btn-theme-mobile');
+    if (btnTM) btnTM.addEventListener('click', () => {
+      const seq = ['light', 'dark', 'system'];
+      const cur = localStorage.getItem('tema') || 'system';
+      const next = seq[(seq.indexOf(cur) + 1) % seq.length];
+      localStorage.setItem('tema', next); Store.setPref('tema', next); aplicarTema(next);
+      toast('Tema: ' + ({ light: 'claro', dark: 'escuro', system: 'sistema' }[next]));
+    });
+  }
+
+  /* =============================== boot ================================ */
+  async function carregarBase(password) {
+    const bar = $('#progress-bar'), pct = $('#splash-pct'), sub = $('#splash-sub');
+    sub.textContent = 'Decifrando base de dados…';
+    bar.style.width = '0%'; pct.textContent = '0%';
+    await Services.initDB({
+      password,
+      onProgress: (p) => {
+        const v = Math.round(p * 100);
+        bar.style.width = v + '%'; pct.textContent = v + '%';
+        if (p >= 0.95) sub.textContent = 'Indexando…';
+        else if (p >= 0.8) sub.textContent = 'Descomprimindo…';
+        else if (p >= 0.6) sub.textContent = 'Decifrando…';
+        else sub.textContent = 'Carregando base de dados…';
+      },
+    });
+    State.total = Services.contarProcessos();
+    State.classes = Services.listarClasses();
+    await carregarFavoritos();
+
+    $('#db-status').classList.add('ok');
+    $('#db-status-text').textContent = `${State.total.toLocaleString('pt-BR')} processos`;
+    $('#brand-meta').textContent = `${State.total} processos`;
+
+    $('#app').hidden = false;
+    $('#splash').classList.add('hide');
+    setTimeout(() => { const s = $('#splash'); if (s) s.remove(); }, 600);
+
+    window.addEventListener('hashchange', route);
+    route();
+  }
+
+  function splashFatal(msg) {
+    const sub = $('#splash-sub'); if (sub) sub.textContent = 'Falha ao carregar';
+    const prog = $('.progress'); if (prog) prog.style.display = 'none';
+    const pct = $('#splash-pct'); if (pct) pct.style.display = 'none';
+    $('.splash-card').appendChild(el('div', { class: 'splash-error', text: msg }));
+    $('#db-status').classList.add('err'); $('#db-status-text').textContent = 'erro';
+  }
+
+  function mostrarLogin() {
+    const login = $('#login'), splash = $('#splash');
+    if (splash) splash.style.display = 'none';
+    login.hidden = false;
+    const form = $('#login-form'), pass = $('#login-pass'), erro = $('#login-error'), submit = $('#login-submit'), eye = $('#login-eye');
+    eye.onclick = () => {
+      pass.type = pass.type === 'password' ? 'text' : 'password';
+      pass.focus();
+    };
+    let busy = false;
+    async function doLogin() {
+      if (busy) return;
+      const pw = pass.value;
+      if (!pw) { erro.textContent = 'Digite a senha.'; erro.hidden = false; pass.focus(); return; }
+      busy = true;
+      erro.hidden = true; submit.disabled = true; submit.textContent = 'Entrando…';
+      try { sessionStorage.setItem('pd_pw', pw); } catch (e2) {}
+      try {
+        login.classList.add('hide');
+        if (splash) splash.style.display = '';
+        await new Promise((r) => setTimeout(r, 280));
+        login.hidden = true; login.classList.remove('hide');
+        await carregarBase(pw);
+      } catch (err) {
+        if (splash) splash.style.display = 'none';
+        login.hidden = false; login.classList.remove('hide');
+        submit.disabled = false; submit.textContent = 'Entrar'; busy = false;
+        try { sessionStorage.removeItem('pd_pw'); } catch (e2) {}
+        if (err && (err.message === 'SENHA_INCORRETA' || err.message === 'ARQUIVO_INVALIDO')) {
+          erro.textContent = err.message === 'SENHA_INCORRETA'
+            ? 'Senha incorreta. Tente novamente.'
+            : 'Arquivo da base inválido ou corrompido.';
+        } else {
+          erro.textContent = 'Erro ao carregar o banco: ' + (err && err.message || err);
+        }
+        erro.hidden = false;
+        pass.value = ''; pass.focus();
+      }
+    }
+    form.onsubmit = (e) => { e.preventDefault(); doLogin(); return false; };
+    submit.onclick = (e) => { e.preventDefault(); doLogin(); };
+    pass.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); doLogin(); } };
+    setTimeout(() => pass.focus(), 60);
+  }
+
+  async function boot() {
+    initTema();
+    initChrome();
+    initTweaks();
+    aplicarTweaks();
+
+    if (typeof initSqlJs === 'undefined') { splashFatal('sql.js não carregou — verifique a conexão.'); return; }
+
+    // Reaproveita senha da sessão (evita re-digitar ao recarregar a aba)
+    let saved = null;
+    try { saved = sessionStorage.getItem('pd_pw'); } catch (e) {}
+    if (saved) {
+      try {
+        await carregarBase(saved);
+        return;
+      } catch (e) {
+        try { sessionStorage.removeItem('pd_pw'); } catch (e2) {}
+        if (e && (e.message === 'SENHA_INCORRETA' || e.message === 'ARQUIVO_INVALIDO')) {
+          mostrarLogin();
+          return;
+        }
+        splashFatal(String(e.message || e));
+        return;
+      }
+    }
+
+    mostrarLogin();
+  }
+
+  boot();
+})();
