@@ -520,7 +520,7 @@ select.input { appearance: none; padding-right: 34px;
 .com-btn:hover { border-color: var(--accent); color: var(--accent); background: color-mix(in oklch, var(--accent) 8%, var(--surface)); }
 .detail-grid { display: grid; grid-template-columns: minmax(0,1fr) 312px; gap: 26px; padding: 0 26px 70px; align-items: start; }
 .detail-main { min-width: 0; }
-.detail-main .tabs { position: sticky; top: 0; z-index: 10; background: color-mix(in oklch, var(--bg) 86%, transparent); backdrop-filter: blur(8px); margin: 0 0 6px; padding-top: 6px; }
+.detail-main .tabs { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(8px); margin: 0 0 6px; padding-top: 6px; }
 .detail-main .detail-body { padding: 16px 0 0; max-width: none; }
 .detail-rail { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 14px; }
 .rail-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 15px 16px; box-shadow: var(--shadow-1); }
@@ -575,6 +575,8 @@ select.input { appearance: none; padding-right: 34px;
 .adv-ac-item:last-child { border-bottom: none; }
 .adv-ac-item:hover, .adv-ac-item.focused { background: var(--surface-2); }
 .adv-ac-item .ac-oab { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-left: 6px; }
+/* quando o autocomplete está dentro de .field (com ícone de busca) */
+.field .adv-ac .input { padding-left: 38px; }
 
 /* painel de advogado relacionado */
 .adv-related { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 16px 18px; margin-bottom: 18px; box-shadow: var(--shadow-1); }

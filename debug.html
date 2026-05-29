@@ -138,6 +138,29 @@ async function runDebug() {
     step('err', '[7] FALHA sql.js: ' + e.message); return;
   }
 
+  // ── Passo 8: verificar tabelas FTS5 ──────────────────────────────────
+  step('info', '[8] Verificando tabelas FTS5…');
+  const ftsTables = ['processos_fts', 'comunicacoes_fts', 'movimentos_fts'];
+  for (const tbl of ftsTables) {
+    try {
+      const r = db.exec(`SELECT COUNT(*) FROM ${tbl}`);
+      const n = r[0].values[0][0];
+      step(n > 0 ? 'ok' : 'warn', `[8] ${tbl}: ${n} linha${n !== 1 ? 's' : ''} indexadas`);
+    } catch(e) {
+      step('err', `[8] ${tbl}: FALHA — ${e.message}`);
+    }
+  }
+  try {
+    const r = db.exec(`SELECT COUNT(*) FROM comunicacoes_fts WHERE comunicacoes_fts MATCH '"guarda"*'`);
+    const n = r[0].values[0][0];
+    step('info', `[8] FTS teste '"guarda"*' em comunicacoes_fts: ${n} hit(s)`);
+  } catch(e) { step('warn', '[8] Teste FTS comunicacoes: ' + e.message); }
+  try {
+    const r = db.exec(`SELECT COUNT(*) FROM movimentos_fts WHERE movimentos_fts MATCH '"guarda"*'`);
+    const n = r[0].values[0][0];
+    step('info', `[8] FTS teste '"guarda"*' em movimentos_fts: ${n} hit(s)`);
+  } catch(e) { step('warn', '[8] Teste FTS movimentos: ' + e.message); }
+
   step('ok', '✅ Pipeline completo! O app deve funcionar.');
 }
 </script>

@@ -783,7 +783,7 @@
     c.addEventListener('click', () => go('#/advogado?q=' + encodeURIComponent(x.nome)));
     return c;
   }
-  function painelRelacionados(nome, rel, inB, onPick) {
+  function painelRelacionados(nome, rel, setB, onPick) {
     const card = el('div', { class: 'adv-related' });
     card.appendChild(el('h3', { text: nome }));
     card.appendChild(el('div', { class: 'sub', text: `Top ${rel.length} advogados que mais atuam em conjunto — clique para ver os processos em comum` }));
@@ -798,7 +798,7 @@
       it.appendChild(nm);
       const bar = el('div', { class: 'rel-bar' }); const fill = el('i'); fill.style.width = Math.round((r.n_comum / max) * 100) + '%'; bar.appendChild(fill); it.appendChild(bar);
       it.appendChild(el('span', { class: 'rel-num', html: `<b>${r.n_comum}</b> em comum` }));
-      it.addEventListener('click', () => { inB.value = r.nome; onPick(); });
+      it.addEventListener('click', () => { if (typeof setB === 'function') setB(r.nome); onPick(); });
       list.appendChild(it);
     });
     card.appendChild(list);
@@ -807,18 +807,17 @@
 
   function screenAdvogado(params) {
     const v = view(); v.innerHTML = ''; setActiveNav('advogado');
-    ensureAdvDatalist();
     const top = el('div', { class: 'topbar' });
     top.appendChild(el('div', { class: 'topbar-row', html: '<h1 class="page-title">Advogados</h1><span class="page-sub" id="adv-sub"></span>' }));
     const tools = el('div', { class: 'adv-toolbar', style: 'margin-top:14px;' });
     const fA = el('div', { class: 'field', style: 'flex:1; min-width:230px; max-width:340px;' });
     fA.innerHTML = `<svg class="ico-search" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4" stroke-linecap="round"/></svg>`;
-    const inA = el('input', { class: 'input', type: 'search', list: 'adv-datalist', placeholder: 'Nome ou nº OAB', value: params.q || '' });
-    fA.appendChild(inA);
+    const acA = makeAdvAC('Nome ou nº OAB', params.q || '');
+    fA.appendChild(acA.el);
     const fB = el('div', { class: 'field', style: 'flex:1; min-width:230px; max-width:340px;' });
     fB.innerHTML = `<svg class="ico-search" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4" stroke-linecap="round"/></svg>`;
-    const inB = el('input', { class: 'input', type: 'search', list: 'adv-datalist', placeholder: 'E também… (atuam juntos)', value: params.b || '' });
-    fB.appendChild(inB);
+    const acB = makeAdvAC('E também… (atuam juntos)', params.b || '');
+    fB.appendChild(acB.el);
     const btn = el('button', { class: 'btn primary', text: 'Buscar' });
     const btnAll = el('a', { class: 'btn', href: '#/advogado', text: 'Ver todos' });
     tools.append(fA, fB, btn, btnAll);
@@ -829,23 +828,26 @@
     const results = el('div'); content.appendChild(results); v.appendChild(content);
 
     function navTo() {
-      const a = inA.value.trim(), b = inB.value.trim();
+      const a = acA.getValue(), b = acB.getValue();
       if (!a) { State.suppressRoute = true; location.hash = '#/advogado'; setTimeout(() => State.suppressRoute = false, 0); render(); return; }
       const h = '#/advogado?q=' + encodeURIComponent(a) + (b ? '&b=' + encodeURIComponent(b) : '');
       State.suppressRoute = true; location.hash = h; setTimeout(() => State.suppressRoute = false, 0);
       render();
     }
     btn.addEventListener('click', navTo);
-    [inA, inB].forEach((i) => i.addEventListener('keydown', (e) => { if (e.key === 'Enter') navTo(); }));
+    [acA, acB].forEach((ac) => {
+      ac.addEventListener('keydown', (e) => { if (e.key === 'Enter') navTo(); });
+      ac.addEventListener('change', navTo);
+    });
 
     function render() {
-      const a = inA.value.trim(), b = inB.value.trim();
+      const a = acA.getValue(), b = acB.getValue();
       results.innerHTML = '';
       const sub = $('#adv-sub');
       if (!a) { renderDiretorio(sub); return; }
       sub.textContent = '';
       const rel = Services.advogadosRelacionados(a, 5);
-      if (rel.length) results.appendChild(painelRelacionados(a, rel, inB, navTo));
+      if (rel.length) results.appendChild(painelRelacionados(a, rel, (v) => acB.setValue(v), navTo));
       const rows = b ? Services.buscarDoisAdvogados(a, b) : Services.buscarPorAdvogado(a);
       results.appendChild(el('p', { class: 'result-meta', html: b ? `<b>${rows.length}</b> processos com <b>${esc(a)}</b> e <b>${esc(b)}</b>` : `<b>${rows.length}</b> processos com <b>${esc(a)}</b>` }));
       const cont = el('div'); renderListaProcessos(rows, cont); results.appendChild(cont);
@@ -865,12 +867,12 @@
         if (!list.length) grid.appendChild(emptyState('Nenhum advogado', 'Ajuste o filtro.', '<circle cx="11" cy="9" r="3"/><path d="M5 19c0-3 3-5 6-5s6 2 6 5"/>'));
       }
       let deb;
-      inA.oninput = () => { clearTimeout(deb); deb = setTimeout(() => paint(inA.value), 220); };
+      acA.addEventListener('input', () => { clearTimeout(deb); deb = setTimeout(() => paint(acA.getValue()), 220); });
       paint('');
     }
 
     render();
-    if (!params.q) setTimeout(() => inA.focus(), 30);
+    if (!params.q) setTimeout(() => acA.el.querySelector('input').focus(), 30);
   }
 
   /* ============================== autocomplete advogado ================ */
@@ -891,7 +893,7 @@
       list.innerHTML = '';
       focusedIdx = -1;
       if (!items.length) { list.classList.remove('open'); return; }
-      items.forEach((a, i) => {
+      items.forEach((a) => {
         const item = el('div', { class: 'adv-ac-item' });
         const nameSpan = document.createElement('span');
         nameSpan.textContent = a.nome;
@@ -920,13 +922,20 @@
       if (idx >= 0 && items[idx]) items[idx].scrollIntoView({ block: 'nearest' });
     }
 
+    function suggest(q) {
+      if (!allAdvs) allAdvs = Services.listarAdvogados();
+      if (q && q.length >= 2) {
+        const nq = norm(q);
+        open(allAdvs.filter((a) => norm(a.nome).includes(nq)).slice(0, 12));
+      } else {
+        open(allAdvs.slice(0, 5));
+      }
+    }
+
+    input.addEventListener('focus', () => suggest(input.value));
     input.addEventListener('input', () => {
       const q = input.value;
-      if (q.length < 2) { close(); return; }
-      if (!allAdvs) allAdvs = Services.listarAdvogados();
-      const nq = norm(q);
-      const matches = allAdvs.filter((a) => norm(a.nome).includes(nq)).slice(0, 12);
-      open(matches);
+      if (!q) { suggest(''); } else { suggest(q); }
     });
 
     input.addEventListener('keydown', (e) => {
