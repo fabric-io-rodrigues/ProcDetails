@@ -60,6 +60,8 @@
 }
 
 * { box-sizing: border-box; }
+/* Garante que [hidden] funcione mesmo em elementos com display explícito no CSS */
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body {
   margin: 0;
