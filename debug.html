@@ -24,7 +24,7 @@
 </div>
 <div id="log"></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/sql-wasm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sql.js-fts5/dist/sql-wasm.js"></script>
 <script>
 const log = document.getElementById('log');
 function step(cls, msg) {
@@ -42,7 +42,7 @@ async function runDebug() {
   if (!pw) { step('err', 'Digite a senha primeiro.'); return; }
 
   const ENC_URL = './base_processos.enc';
-  const SQLJS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/';
+  const SQLJS_CDN = 'https://cdn.jsdelivr.net/npm/sql.js-fts5/dist/';
 
   // ── Passo 1: sql.js ─────────────────────────────────────────────────
   step('info', '[1] Inicializando sql.js…');

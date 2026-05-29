@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  const SQLJS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/';
+  const SQLJS_CDN = 'https://cdn.jsdelivr.net/npm/sql.js-fts5/dist/';
   const ENC_URL   = window.PROCDETAILS_ENC_URL || './base_processos.enc';
 
   /* ----------------------------------------------------------------- AUTH
