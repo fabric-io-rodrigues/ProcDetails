@@ -70,22 +70,12 @@
     if (typeof DecompressionStream === 'undefined') {
       throw new Error('DecompressionStream não suportado. Use Chrome 80+, Firefox 113+ ou Safari 16.4+.');
     }
-    const ds     = new DecompressionStream('gzip');
-    const writer = ds.writable.getWriter();
-    const reader = ds.readable.getReader();
-    writer.write(compressed);
-    writer.close();
-    const chunks = [];
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
+    try {
+      const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    } catch (e) {
+      throw new Error('Falha ao descomprimir: ' + (e && e.message || e));
     }
-    const total = chunks.reduce((s, c) => s + c.length, 0);
-    const out   = new Uint8Array(total);
-    let pos = 0;
-    for (const c of chunks) { out.set(c, pos); pos += c.length; }
-    return out;
   }
 
   /* ------------------------------------------------------------------ init */
