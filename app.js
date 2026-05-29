@@ -368,10 +368,27 @@
     let curQ = q, curClasse = selClasse.value;
 
     function run() {
-      let rows = curQ.trim() ? Services.buscaGeral(curQ) : Services.listarProcessos({ classe: curClasse });
-      if (curQ.trim() && curClasse) rows = rows.filter((r) => r.classe === curClasse);
-      if (soFav) rows = rows.filter((r) => State.favSet.has(r.numero));
-      meta.textContent = `${rows.length} de ${State.total}`;
+      let rows;
+      if (curQ.trim()) {
+        try {
+          rows = Services.buscaGeral(curQ);
+        } catch (e) {
+          // FTS5 indisponível: fallback para busca LIKE
+          rows = Services.listarProcessos({ classe: curClasse }).filter((r) => {
+            const t = curQ.toLowerCase();
+            return (r.numero || '').includes(t) || (r.cnj || '').toLowerCase().includes(t)
+              || (r.assunto || '').toLowerCase().includes(t) || (r.partes || '').toLowerCase().includes(t)
+              || (r.advogados || '').toLowerCase().includes(t);
+          });
+        }
+        if (curClasse) rows = rows.filter((r) => r.classe === curClasse);
+        if (soFav) rows = rows.filter((r) => State.favSet.has(r.numero));
+        meta.textContent = `${rows.length} resultado${rows.length !== 1 ? 's' : ''} para "${curQ.trim()}"`;
+      } else {
+        rows = Services.listarProcessos({ classe: curClasse });
+        if (soFav) rows = rows.filter((r) => State.favSet.has(r.numero));
+        meta.textContent = `${rows.length} de ${State.total}`;
+      }
       renderListaProcessos(rows, results);
     }
 
@@ -731,7 +748,7 @@
   function tabEventos(p, t) {
     let evs = Services.listarEventos(p.numero);
     if (t) evs = evs.filter((e) => evMatch(e, t));
-    if (!evs.length) return emptyState('Sem eventos', t ? 'Nenhum evento corresponde à busca.' : 'Nenhum evento extraído por IA para este processo.');
+    if (!evs.length) return emptyState('Sem eventos', t ? 'Nenhum evento corresponde à busca.' : 'Nenhum evento registrado para este processo.');
     const list = el('div', { class: 'ev-list' });
     evs.forEach((e) => {
       const future = (diffDias(e.data_iso) || -1) >= 0;
@@ -856,27 +873,105 @@
     if (!params.q) setTimeout(() => inA.focus(), 30);
   }
 
+  /* ============================== autocomplete advogado ================ */
+  function makeAdvAC(placeholder, initialValue) {
+    const wrap = el('div', { class: 'adv-ac' });
+    const input = el('input', { class: 'input', type: 'search', placeholder, value: initialValue || '' });
+    const list = el('div', { class: 'adv-ac-list' });
+    wrap.appendChild(input); wrap.appendChild(list);
+
+    let focusedIdx = -1;
+    let allAdvs = null;
+
+    function norm(s) {
+      return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    }
+
+    function open(items) {
+      list.innerHTML = '';
+      focusedIdx = -1;
+      if (!items.length) { list.classList.remove('open'); return; }
+      items.forEach((a, i) => {
+        const item = el('div', { class: 'adv-ac-item' });
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = a.nome;
+        item.appendChild(nameSpan);
+        if (a.oab) {
+          const oabSpan = el('span', { class: 'ac-oab', text: a.oab.replace(/^OAB[\s/]*/i, '') });
+          item.appendChild(oabSpan);
+        }
+        item.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          input.value = a.nome;
+          list.classList.remove('open');
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        list.appendChild(item);
+      });
+      list.classList.add('open');
+    }
+
+    function close() { list.classList.remove('open'); focusedIdx = -1; }
+
+    function setFocus(idx) {
+      const items = list.querySelectorAll('.adv-ac-item');
+      items.forEach((it, i) => it.classList.toggle('focused', i === idx));
+      focusedIdx = idx;
+      if (idx >= 0 && items[idx]) items[idx].scrollIntoView({ block: 'nearest' });
+    }
+
+    input.addEventListener('input', () => {
+      const q = input.value;
+      if (q.length < 2) { close(); return; }
+      if (!allAdvs) allAdvs = Services.listarAdvogados();
+      const nq = norm(q);
+      const matches = allAdvs.filter((a) => norm(a.nome).includes(nq)).slice(0, 12);
+      open(matches);
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (!list.classList.contains('open')) return;
+      const items = list.querySelectorAll('.adv-ac-item');
+      if (e.key === 'ArrowDown') { e.preventDefault(); setFocus(Math.min(focusedIdx + 1, items.length - 1)); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); setFocus(Math.max(focusedIdx - 1, 0)); }
+      else if (e.key === 'Enter' && focusedIdx >= 0) {
+        e.preventDefault();
+        input.value = items[focusedIdx].querySelector('span').textContent;
+        close();
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      } else if (e.key === 'Escape') { close(); }
+    });
+
+    document.addEventListener('click', (e) => { if (!wrap.contains(e.target)) close(); });
+
+    return {
+      el: wrap,
+      getValue() { return input.value.trim(); },
+      setValue(v) { input.value = v || ''; },
+      addEventListener: (type, fn) => input.addEventListener(type, fn),
+    };
+  }
+
   /* ============================== TELA 4: agenda ======================= */
   function screenAgenda(params) {
     const v = view(); v.innerHTML = ''; setActiveNav('agenda');
     const ref = params.ref || hojeISO();
 
     const top = el('div', { class: 'topbar' });
-    top.appendChild(el('div', { class: 'topbar-row', html: '<h1 class="page-title">Agenda</h1><span class="page-sub">Próximos prazos e eventos extraídos por IA</span>' }));
+    top.appendChild(el('div', { class: 'topbar-row', html: '<h1 class="page-title">Agenda</h1><span class="page-sub">Próximos prazos e eventos</span>' }));
     const ctrls = el('div', { class: 'agenda-ctrls', style: 'margin-top:14px;' });
     const g1 = el('div', { class: 'ctrl-group' });
     g1.appendChild(el('label', { text: 'A partir de' }));
     const inDate = el('input', { class: 'input', type: 'date', value: ref, style: 'width:auto;' });
     g1.appendChild(inDate);
-    ensureAdvDatalist();
+    const acAdv = makeAdvAC('Filtrar por advogado…', params.adv || '');
+    const acAdv2 = makeAdvAC('Segundo advogado…', params.adv2 || '');
     const gA = el('div', { class: 'ctrl-group' });
     gA.appendChild(el('label', { text: 'Advogado' }));
-    const inAdv = el('input', { class: 'input', type: 'search', list: 'adv-datalist', placeholder: 'Filtrar por advogado…', value: params.adv || '' });
-    gA.appendChild(inAdv);
+    gA.appendChild(acAdv.el);
     const gB = el('div', { class: 'ctrl-group' });
     gB.appendChild(el('label', { text: 'E também (em comum)' }));
-    const inAdv2 = el('input', { class: 'input', type: 'search', list: 'adv-datalist', placeholder: 'Segundo advogado…', value: params.adv2 || '' });
-    gB.appendChild(inAdv2);
+    gB.appendChild(acAdv2.el);
     ctrls.append(g1, gA, gB);
     top.appendChild(ctrls);
     v.appendChild(top);
@@ -886,7 +981,7 @@
 
     function run() {
       const r = inDate.value || hojeISO();
-      const advA = inAdv.value.trim(), advB = inAdv2.value.trim();
+      const advA = acAdv.getValue(), advB = acAdv2.getValue();
       const opts = {}; if (advA) opts.advA = advA; if (advB) opts.advB = advB;
       let h = `#/agenda?ref=${r}`;
       if (advA) h += '&adv=' + encodeURIComponent(advA);
@@ -894,16 +989,14 @@
       State.suppressRoute = true; location.hash = h; setTimeout(() => State.suppressRoute = false, 0);
 
       const futuros = Services.agenda(r, null, opts);
-      const passados = Services.agendaPassada(r, 14, opts);
       results.innerHTML = '';
       const filtroTxt = advA ? (advB ? ` · <b>${esc(advA)}</b> &amp; <b>${esc(advB)}</b>` : ` · <b>${esc(advA)}</b>`) : '';
-      if (!futuros.length && !passados.length) {
+      if (!futuros.length) {
         results.appendChild(emptyState('Nada na agenda', advA ? `Sem eventos para ${advA}${advB ? ' e ' + advB : ''} a partir dessa data.` : `Sem eventos futuros a partir de ${fmtData(r)}.`, '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/>'));
         return;
       }
-      results.appendChild(el('p', { class: 'result-meta', html: `<b>${futuros.length}</b> eventos futuros a partir de <b>${fmtData(r)}</b>${filtroTxt}` }));
+      results.appendChild(el('p', { class: 'result-meta', html: `<b>${futuros.length}</b> evento${futuros.length !== 1 ? 's' : ''} a partir de <b>${fmtData(r)}</b>${filtroTxt}` }));
       const grupos = new Map();
-      passados.forEach((e) => addGrp(grupos, e));
       futuros.forEach((e) => addGrp(grupos, e));
       [...grupos.keys()].sort().forEach((dia) => results.appendChild(renderDiaAgenda(dia, grupos.get(dia), r)));
     }
@@ -911,9 +1004,9 @@
 
     inDate.addEventListener('change', run);
     let debA;
-    [inAdv, inAdv2].forEach((i) => {
-      i.addEventListener('change', run);
-      i.addEventListener('input', () => { clearTimeout(debA); debA = setTimeout(run, 350); });
+    [acAdv, acAdv2].forEach((ac) => {
+      ac.addEventListener('change', run);
+      ac.addEventListener('input', () => { clearTimeout(debA); debA = setTimeout(run, 350); });
     });
     run();
   }

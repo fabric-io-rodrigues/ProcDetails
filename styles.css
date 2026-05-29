@@ -236,7 +236,7 @@ button { font-family: inherit; cursor: pointer; }
 /* topbar comum às telas */
 .topbar {
   position: sticky; top: 0; z-index: 20;
-  background: color-mix(in oklch, var(--bg) 82%, transparent);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--line);
   padding: 16px 26px;
@@ -544,7 +544,7 @@ select.input { appearance: none; padding-right: 34px;
 
 /* --------------------------------------------------- advogados (cards) */
 .adv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 12px; }
-.adv-card { display: flex; align-items: center; gap: 13px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 14px 15px; cursor: pointer; transition: all .14s; box-shadow: var(--shadow-1); text-align: left; }
+.adv-card { display: flex; align-items: center; gap: 13px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 14px 15px; cursor: pointer; transition: all .14s; box-shadow: var(--shadow-1); text-align: left; color: var(--ink); }
 .adv-card:hover { border-color: color-mix(in oklch, var(--c, var(--accent)) 50%, var(--line)); transform: translateY(-1px); box-shadow: var(--shadow-2); }
 .adv-avatar { width: 40px; height: 40px; flex: none; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; font-family: var(--ui);
   color: var(--c, var(--accent));
@@ -552,12 +552,29 @@ select.input { appearance: none; padding-right: 34px;
   box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--c, var(--accent)) 32%, transparent); }
 :root[data-theme='dark'] .adv-avatar { color: color-mix(in oklch, var(--c, var(--accent)) 65%, white); background: color-mix(in oklch, var(--c, var(--accent)) 26%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--c, var(--accent)) 42%, transparent); }
 .adv-info { min-width: 0; flex: 1; }
-.adv-name { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.adv-name { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
 .adv-oab { font-family: var(--mono); font-size: 11px; color: var(--faint); }
 .adv-count { flex: none; text-align: right; }
 .adv-count .num { font-family: var(--mono); font-weight: 700; font-size: 17px; color: color-mix(in oklch, var(--c, var(--accent)) 75%, var(--ink)); }
 :root[data-theme='dark'] .adv-count .num { color: color-mix(in oklch, var(--c, var(--accent)) 62%, white); }
 .adv-count .lab { font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: .04em; }
+
+/* ------------------------------------------------ autocomplete advogado */
+.adv-ac { position: relative; }
+.adv-ac-list {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 200;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-md); box-shadow: var(--shadow-2);
+  max-height: 260px; overflow-y: auto; display: none;
+}
+.adv-ac-list.open { display: block; }
+.adv-ac-item {
+  padding: 8px 12px; font-size: 13px; cursor: pointer;
+  border-bottom: 1px solid var(--line-2); color: var(--ink);
+}
+.adv-ac-item:last-child { border-bottom: none; }
+.adv-ac-item:hover, .adv-ac-item.focused { background: var(--surface-2); }
+.adv-ac-item .ac-oab { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-left: 6px; }
 
 /* painel de advogado relacionado */
 .adv-related { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 16px 18px; margin-bottom: 18px; box-shadow: var(--shadow-1); }
