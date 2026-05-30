@@ -1,0 +1,19 @@
+{
+  "name": "ProcDetails",
+  "short_name": "ProcDetails",
+  "description": "Visualizador de Processos Judiciais",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0E141B",
+  "theme_color": "#0E7C66",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

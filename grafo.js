@@ -5,7 +5,7 @@
 
    render(container, centralNome, { nodes, edges })
      nodes : [{ id, nome, oab, n_com_central, central }]
-     edges : [{ source, target, n_comum }]   ← todos os pares, não só estrela
+     edges : [{ source, target, n_comum }]  — todos os pares
    ========================================================================== */
 (function () {
   'use strict';
@@ -16,163 +16,177 @@
   function loadD3() {
     if (window.d3) return Promise.resolve();
     if (_d3Promise) return _d3Promise;
-    _d3Promise = new Promise(function (resolve, reject) {
-      var s = document.createElement('script');
+    _d3Promise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
       s.src = D3_URL;
       s.onload = resolve;
-      s.onerror = function () { reject(new Error('Falha ao carregar D3.js')); };
+      s.onerror = () => reject(new Error('Falha ao carregar D3.js'));
       document.head.appendChild(s);
     });
     return _d3Promise;
   }
 
-  function cssVar(prop) {
-    return getComputedStyle(document.documentElement).getPropertyValue(prop).trim();
-  }
-
-  function esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
+  const cssVar = (p) => getComputedStyle(document.documentElement).getPropertyValue(p).trim();
+  const esc    = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
   function abbrev(name, central) {
-    var parts = String(name || '').trim().split(/\s+/);
+    const parts = String(name || '').trim().split(/\s+/);
     if (central) return parts[0] || name;
     if (parts.length === 1) return parts[0].slice(0, 9);
     return parts[0] + ' ' + parts[parts.length - 1][0] + '.';
   }
 
-  /**
-   * render(container, centralNome, graphData)
-   *   graphData = { nodes: [...], edges: [...] }  — retornado por Services.grafoAdvogado()
-   */
   function render(container, centralNome, graphData) {
-    var nodes = (graphData && graphData.nodes) || [];
-    var edges = (graphData && graphData.edges) || [];
+    const nodes = (graphData && graphData.nodes) || [];
+    const edges = (graphData && graphData.edges) || [];
 
-    if (!nodes.length) {
-      container.textContent = 'Sem dados de relacionamento.';
-      return;
-    }
+    if (!nodes.length) { container.textContent = 'Sem dados de relacionamento.'; return; }
 
     /* --- cores do tema --------------------------------------------------- */
-    var accent    = cssVar('--accent')     || '#3D4ED6';
-    var accentInk = cssVar('--accent-ink') || '#ffffff';
-    var ink       = cssVar('--ink')        || '#161B22';
-    var muted     = cssVar('--muted')      || '#6B7585';
-    var line      = cssVar('--line')       || '#E0E4EA';
-    var surface   = cssVar('--surface')    || '#FFFFFF';
+    const accent    = cssVar('--accent')     || '#0E7C66';
+    const accentInk = cssVar('--accent-ink') || '#ffffff';
+    const ink       = cssVar('--ink')        || '#161B22';
+    const muted     = cssVar('--muted')      || '#6B7585';
+    const faint     = cssVar('--faint')      || '#97A0AE';
+    const line      = cssVar('--line')       || '#E0E4EA';
+    const surface   = cssVar('--surface')    || '#FFFFFF';
 
-    /* --- dimensões: cresce com o número de nós -------------------------- */
-    var W = container.clientWidth || 480;
-    var n = nodes.length;
-    var H = Math.max(380, Math.min(640, 220 + n * 16));
+    /* --- dimensões ------------------------------------------------------- */
+    const W = container.clientWidth || 520;
+    const n = nodes.length;
+    const H = Math.max(400, Math.min(660, 240 + n * 16));
     container.style.height = H + 'px';
 
     /* --- limpar ---------------------------------------------------------- */
-    container.querySelectorAll('svg, .grafo-tooltip').forEach(function (e) { e.remove(); });
+    container.querySelectorAll('svg, .grafo-tooltip, .grafo-reset, .grafo-hint').forEach(e => e.remove());
 
     /* --- tooltip --------------------------------------------------------- */
-    var tip = document.createElement('div');
+    const tip = document.createElement('div');
     tip.className = 'grafo-tooltip';
     container.appendChild(tip);
 
+    /* --- botão reset zoom ------------------------------------------------ */
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'grafo-reset';
+    resetBtn.title = 'Resetar zoom';
+    resetBtn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1 5V1h4M15 5V1h-4M1 11v4h4M15 11v4h-4"/></svg>';
+    container.appendChild(resetBtn);
+
+    /* --- hint ------------------------------------------------------------ */
+    const hint = document.createElement('div');
+    hint.className = 'grafo-hint';
+    hint.textContent = 'scroll para zoom · arraste para mover · hover para destacar';
+    container.appendChild(hint);
+
     /* --- escalas --------------------------------------------------------- */
-    var maxCentral = nodes.reduce(function (m, d) { return Math.max(m, d.n_com_central || 0); }, 1);
-    var maxEdge    = edges.reduce(function (m, e) { return Math.max(m, e.n_comum || 1); }, 1);
+    const maxCentral = nodes.reduce((m, d) => Math.max(m, d.n_com_central || 0), 1);
+    const maxEdge    = edges.reduce((m, e) => Math.max(m, e.n_comum || 1), 1);
 
-    /* raio: central fixo, satélites proporcionais a n_com_central */
-    function nodeR(d) {
-      if (d.central) return 22;
-      return 7 + Math.round((d.n_com_central / maxCentral) * 11);
-    }
+    /* Marca arestas ANTES que o forceLink mute source/target para objetos */
+    edges.forEach(e => {
+      e._central = (e.source === centralNome || e.target === centralNome);
+    });
+    const subEdges     = edges.filter(e => !e._central);
+    const centralEdges = edges.filter(e => e._central);
 
-    /* opacidade do fill do nó — fantasma (pouca conexão) → sólido (muita) */
-    function fillOpacity(d) {
-      if (d.central) return 1;
-      return 0.12 + 0.88 * (d.n_com_central / maxCentral);
-    }
-    function strokeOpacity(d) {
-      if (d.central) return 0;
-      return 0.28 + 0.72 * (d.n_com_central / maxCentral);
-    }
-    function labelOpacity(d) {
-      if (d.central) return 1;
-      return 0.35 + 0.65 * (d.n_com_central / maxCentral);
-    }
+    /* helper pós-mutação */
+    const nodeId = (x) => (x && typeof x === 'object') ? x.id : x;
+    const connectedTo = (e, id) => nodeId(e.source) === id || nodeId(e.target) === id;
 
-    /* opacidade e espessura das arestas — por n_comum */
-    function edgeOpacity(e) {
-      var isCentralEdge = (e.source.id || e.source) === centralNome
-                       || (e.target.id || e.target) === centralNome;
-      var base = isCentralEdge ? 0.55 : 0.18;
-      return base + (1 - base) * (e.n_comum / maxEdge);
-    }
-    function edgeWidth(e) {
-      return 0.8 + (e.n_comum / maxEdge) * 2.4;
-    }
+    /* --- funções de escala ----------------------------------------------- */
+    const nodeR = (d) => d.central ? 22 : 7 + Math.round((d.n_com_central / maxCentral) * 11);
+    const fillOp   = (d) => d.central ? 1   : 0.13 + 0.87 * (d.n_com_central / maxCentral);
+    const strokeOp = (d) => d.central ? 0   : 0.25 + 0.75 * (d.n_com_central / maxCentral);
+    const labelOp  = (d) => d.central ? 1   : 0.35 + 0.65 * (d.n_com_central / maxCentral);
+
+    const subEdgeOp  = (e) => 0.18 + 0.45 * (e.n_comum / maxEdge);
+    const subEdgeW   = (e) => 0.6  + (e.n_comum / maxEdge) * 2.0;
+    const centEdgeOp = (e) => 0.30 + 0.55 * (e.n_comum / maxEdge);
+    const centEdgeW  = (e) => 1.0  + (e.n_comum / maxEdge) * 2.2;
 
     function clamp(v, max) { return Math.max(28, Math.min((max || 400) - 28, v || 0)); }
 
-    /* --- SVG ------------------------------------------------------------- */
-    var svg = d3.select(container).append('svg')
-      .attr('width', W).attr('height', H);
+    /* --- SVG + grupo de zoom -------------------------------------------- */
+    const svg = d3.select(container).append('svg')
+      .attr('width', W).attr('height', H)
+      .style('cursor', 'grab');
 
-    /* gradiente de fundo */
-    var defs = svg.append('defs');
-    var grd = defs.append('radialGradient').attr('id', 'gbg')
+    const zoomG = svg.append('g');
+
+    /* gradiente suave de fundo */
+    const defs = svg.append('defs');
+    const grd = defs.append('radialGradient').attr('id', 'gbg2')
       .attr('cx', '50%').attr('cy', '50%').attr('r', '55%');
-    grd.append('stop').attr('offset', '0%').attr('stop-color', accent).attr('stop-opacity', 0.06);
+    grd.append('stop').attr('offset', '0%').attr('stop-color', accent).attr('stop-opacity', 0.07);
     grd.append('stop').attr('offset', '100%').attr('stop-color', surface).attr('stop-opacity', 0);
-    svg.append('rect').attr('width', W).attr('height', H).attr('fill', 'url(#gbg)');
+    zoomG.append('rect').attr('width', W).attr('height', H).attr('fill', 'url(#gbg2)').attr('pointer-events', 'none');
 
-    /* --- simulação -------------------------------------------------------- */
-    var repulsion = n > 35 ? -280 : n > 20 ? -230 : n > 10 ? -190 : -160;
-    var sim = d3.forceSimulation(nodes)
+    /* --- zoom + pan ------------------------------------------------------ */
+    const zoom = d3.zoom()
+      .scaleExtent([0.25, 5])
+      .on('zoom', (ev) => zoomG.attr('transform', ev.transform));
+    svg.call(zoom);
+    resetBtn.addEventListener('click', () =>
+      svg.transition().duration(350).call(zoom.transform, d3.zoomIdentity)
+    );
+
+    /* --- simulação de forças -------------------------------------------- */
+    /* Chave: arestas centrais fracas → satélites se espalham.
+       Arestas entre satélites fortes → comunidades se agrupam. */
+    const repulsion = n > 40 ? -260 : n > 20 ? -220 : -180;
+    const sim = d3.forceSimulation(nodes)
       .force('link', d3.forceLink(edges)
-        .id(function (d) { return d.id; })
-        /* arestas pesadas mantêm nós mais próximos */
-        .distance(function (e) { return 60 + (1 - e.n_comum / maxEdge) * 60; })
-        .strength(function (e) { return 0.3 + 0.5 * (e.n_comum / maxEdge); }))
-      .force('charge', d3.forceManyBody().strength(repulsion))
-      .force('center', d3.forceCenter(W / 2, H / 2))
-      .force('collision', d3.forceCollide().radius(function (d) { return nodeR(d) + 12; }));
+        .id(d => d.id)
+        .distance(e => e._central ? 115 : 45 + (1 - e.n_comum / maxEdge) * 45)
+        .strength(e => e._central ? 0.06 : 0.30 + 0.50 * (e.n_comum / maxEdge)))
+      .force('charge', d3.forceManyBody().strength(repulsion).distanceMax(300))
+      .force('x', d3.forceX(W / 2).strength(0.04))
+      .force('y', d3.forceY(H / 2).strength(0.04))
+      .force('collision', d3.forceCollide().radius(d => nodeR(d) + 10));
 
-    /* --- arestas --------------------------------------------------------- */
-    var link = svg.append('g')
-      .selectAll('line').data(edges).join('line')
+    /* --- arestas em duas camadas:
+         Camada 1 (fundo): sub-conexões — faint/muted, finas
+         Camada 2 (frente): conexões ao central — accent, mais espessas      */
+    const subLinkSel = zoomG.append('g').attr('class', 'g-sub-links')
+      .selectAll('line').data(subEdges).join('line')
+      .attr('stroke', faint)
+      .attr('stroke-opacity', subEdgeOp)
+      .attr('stroke-width', subEdgeW);
+
+    const centLinkSel = zoomG.append('g').attr('class', 'g-cent-links')
+      .selectAll('line').data(centralEdges).join('line')
       .attr('stroke', accent)
-      .attr('stroke-opacity', edgeOpacity)
-      .attr('stroke-width', edgeWidth);
+      .attr('stroke-opacity', centEdgeOp)
+      .attr('stroke-width', centEdgeW);
 
     /* --- grupos de nós --------------------------------------------------- */
-    var nodeG = svg.append('g')
+    const nodeG = zoomG.append('g').attr('class', 'g-nodes')
       .selectAll('g').data(nodes).join('g')
-      .style('cursor', function (d) { return d.central ? 'default' : 'pointer'; });
+      .style('cursor', 'grab');
 
     /* círculo principal */
     nodeG.append('circle')
       .attr('r', nodeR)
       .attr('fill', accent)
-      .attr('fill-opacity', fillOpacity)
+      .attr('fill-opacity', fillOp)
       .attr('stroke', accent)
-      .attr('stroke-opacity', strokeOpacity)
+      .attr('stroke-opacity', strokeOp)
       .attr('stroke-width', 1.5);
 
     /* anel tracejado no nó central */
-    nodeG.filter(function (d) { return d.central; })
+    nodeG.filter(d => d.central)
       .append('circle')
-      .attr('r', function (d) { return nodeR(d) + 6; })
+      .attr('r', d => nodeR(d) + 6)
       .attr('fill', 'none')
       .attr('stroke', accent)
-      .attr('stroke-opacity', 0.30)
+      .attr('stroke-opacity', 0.28)
       .attr('stroke-width', 1.5)
       .attr('stroke-dasharray', '4 3');
 
-    /* letra inicial no nó central */
-    nodeG.filter(function (d) { return d.central; })
+    /* inicial no centro do nó central */
+    nodeG.filter(d => d.central)
       .append('text')
-      .text(function (d) { return (d.label || d.nome || '?')[0].toUpperCase(); })
+      .text(d => (d.label || d.nome || '?')[0].toUpperCase())
       .attr('text-anchor', 'middle').attr('dominant-baseline', 'central')
       .attr('font-size', 13).attr('font-weight', '700')
       .attr('font-family', 'IBM Plex Sans, system-ui, sans-serif')
@@ -180,80 +194,91 @@
 
     /* rótulo abaixo do nó */
     nodeG.append('text')
-      .text(function (d) { return abbrev(d.label || d.nome, d.central); })
+      .text(d => abbrev(d.label || d.nome, d.central))
       .attr('text-anchor', 'middle')
-      .attr('y', function (d) { return nodeR(d) + 12; })
+      .attr('y', d => nodeR(d) + 12)
       .attr('font-size', 10.5)
       .attr('font-family', 'IBM Plex Sans, system-ui, sans-serif')
-      .attr('fill', ink)
-      .attr('fill-opacity', labelOpacity)
+      .attr('fill', ink).attr('fill-opacity', labelOp)
       .attr('pointer-events', 'none');
 
-    /* --- drag ------------------------------------------------------------ */
+    /* --- drag nos nós ---------------------------------------------------- */
     nodeG.call(d3.drag()
-      .on('start', function (ev, d) { if (!ev.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
-      .on('drag',  function (ev, d) { d.fx = ev.x; d.fy = ev.y; })
-      .on('end',   function (ev, d) { if (!ev.active) sim.alphaTarget(0); d.fx = null; d.fy = null; })
+      .on('start', (ev, d) => { if (!ev.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag',  (ev, d) => { d.fx = ev.x; d.fy = ev.y; })
+      .on('end',   (ev, d) => { if (!ev.active) sim.alphaTarget(0); d.fx = null; d.fy = null; })
     );
 
-    /* --- tooltip --------------------------------------------------------- */
+    /* --- highlight ao hover ---------------------------------------------- */
+    function highlightNode(d) {
+      const conns = new Set([d.id]);
+      edges.forEach(e => {
+        if (connectedTo(e, d.id)) { conns.add(nodeId(e.source)); conns.add(nodeId(e.target)); }
+      });
+
+      nodeG.transition().duration(80)
+        .attr('opacity', nd => conns.has(nd.id) ? 1 : 0.10);
+
+      subLinkSel.transition().duration(80)
+        .attr('stroke-opacity', e => connectedTo(e, d.id) ? 0.85 : 0.03)
+        .attr('stroke-width',   e => connectedTo(e, d.id) ? subEdgeW(e) * 1.6 : subEdgeW(e));
+
+      centLinkSel.transition().duration(80)
+        .attr('stroke-opacity', e => connectedTo(e, d.id) ? 0.95 : 0.03)
+        .attr('stroke-width',   e => connectedTo(e, d.id) ? centEdgeW(e) * 1.4 : centEdgeW(e));
+    }
+
+    function resetHighlight() {
+      nodeG.transition().duration(120).attr('opacity', 1);
+      subLinkSel.transition().duration(120)
+        .attr('stroke-opacity', subEdgeOp).attr('stroke-width', subEdgeW);
+      centLinkSel.transition().duration(120)
+        .attr('stroke-opacity', centEdgeOp).attr('stroke-width', centEdgeW);
+      tip.classList.remove('show');
+    }
+
     nodeG
-      .on('mouseenter', function (ev, d) {
-        var ratio = d.central ? 1 : d.n_com_central / maxCentral;
-        var bar = '<span style="display:inline-block;width:' + Math.round(ratio * 48) + 'px;'
-          + 'height:4px;border-radius:2px;background:' + accent + ';opacity:' + (0.3 + 0.7 * ratio)
-          + ';margin-right:4px;vertical-align:middle"></span>';
-        var html = '<b>' + esc(d.label || d.nome) + '</b>';
-        if (d.oab) html += ' <span style="font-family:monospace;font-size:10px;color:' + muted + '">OAB ' + esc(d.oab) + '</span>';
+      .on('mouseenter', (ev, d) => {
+        highlightNode(d);
+        const ratio = d.central ? 1 : d.n_com_central / maxCentral;
+        const bar = `<span style="display:inline-block;width:${Math.round(ratio*48)}px;height:4px;border-radius:2px;background:${accent};opacity:${0.3+0.7*ratio};margin-right:4px;vertical-align:middle"></span>`;
+        const grau = edges.filter(e => connectedTo(e, d.id)).length;
+        let html = `<b>${esc(d.label || d.nome)}</b>`;
+        if (d.oab) html += ` <span style="font-family:monospace;font-size:10px;color:${muted}">OAB ${esc(d.oab)}</span>`;
         if (!d.central) {
-          html += '<br>' + bar + '<span style="font-size:11px;color:' + accent + '">'
-            + d.n_com_central + ' proc. em comum com ' + esc(centralNome.split(' ')[0]) + '</span>';
-          /* contar grau total no subgrafo */
-          var grau = edges.filter(function (e) {
-            return (e.source.id || e.source) === d.id || (e.target.id || e.target) === d.id;
-          }).length;
-          html += '<br><span style="font-size:11px;color:' + muted + '">'
-            + grau + ' conexão' + (grau !== 1 ? 'ões' : '') + ' neste subgrafo</span>';
+          html += `<br>${bar}<span style="font-size:11px;color:${accent}">${d.n_com_central} proc. com ${esc(centralNome.split(' ')[0])}</span>`;
+          html += `<br><span style="font-size:11px;color:${muted}">${grau} conexão${grau !== 1 ? 'ões' : ''} neste subgrafo</span>`;
         } else {
-          html += '<br><span style="font-size:11px;color:' + muted + '">advogado central · '
-            + (nodes.length - 1) + ' colaboradores</span>';
+          html += `<br><span style="font-size:11px;color:${muted}">advogado central · ${nodes.length - 1} colaboradores</span>`;
         }
         tip.innerHTML = html;
         tip.classList.add('show');
         moveTip(ev);
       })
       .on('mousemove', moveTip)
-      .on('mouseleave', function () { tip.classList.remove('show'); });
-
-    /* clique em satélite navega para sua tela */
-    nodeG.filter(function (d) { return !d.central; })
-      .on('click', function (ev, d) {
-        window.location.hash = '#/advogado?q=' + encodeURIComponent(d.label || d.nome);
-      });
+      .on('mouseleave', resetHighlight);
 
     /* --- tick ------------------------------------------------------------ */
-    sim.on('tick', function () {
-      link
-        .attr('x1', function (d) { return clamp(d.source.x, W); })
-        .attr('y1', function (d) { return clamp(d.source.y, H); })
-        .attr('x2', function (d) { return clamp(d.target.x, W); })
-        .attr('y2', function (d) { return clamp(d.target.y, H); });
-      nodeG.attr('transform', function (d) {
-        return 'translate(' + clamp(d.x, W) + ',' + clamp(d.y, H) + ')';
-      });
+    sim.on('tick', () => {
+      const updLine = (sel) => sel
+        .attr('x1', e => clamp(e.source.x, W)).attr('y1', e => clamp(e.source.y, H))
+        .attr('x2', e => clamp(e.target.x, W)).attr('y2', e => clamp(e.target.y, H));
+      updLine(subLinkSel);
+      updLine(centLinkSel);
+      nodeG.attr('transform', d => `translate(${clamp(d.x, W)},${clamp(d.y, H)})`);
     });
 
-    /* --- posição do tooltip ---------------------------------------------- */
+    /* --- posição do tooltip ----------------------------------------------- */
     function moveTip(ev) {
-      var rect = container.getBoundingClientRect();
-      var x = ev.clientX - rect.left;
-      var y = ev.clientY - rect.top;
-      var tw = tip.offsetWidth || 180;
-      var th = tip.offsetHeight || 44;
+      const rect = container.getBoundingClientRect();
+      const x = ev.clientX - rect.left;
+      const y = ev.clientY - rect.top;
+      const tw = tip.offsetWidth || 190;
+      const th = tip.offsetHeight || 48;
       tip.style.left = (x + 14 + tw > W ? x - tw - 8 : x + 14) + 'px';
       tip.style.top  = Math.max(4, Math.min(H - th - 4, y - th / 2)) + 'px';
     }
   }
 
-  window.GrafoAdv = { loadD3: loadD3, render: render };
+  window.GrafoAdv = { loadD3, render };
 })();
