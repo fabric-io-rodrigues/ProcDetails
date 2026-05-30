@@ -236,19 +236,24 @@
   }
 
   /* ====================== render lista de processos ==================== */
-  function renderListaProcessos(rows, container) {
+  function renderListaProcessos(rows, container, opts = {}) {
     container.innerHTML = '';
     if (!rows.length) {
       container.appendChild(emptyState('Nenhum processo encontrado', 'Ajuste a busca ou os filtros para ver resultados.'));
       return;
     }
     const layout = State.tweaks.listLayout;
-    if (layout === 'cards') return container.appendChild(listaCards(rows));
-    if (layout === 'compacta') return container.appendChild(listaCompacta(rows));
-    return container.appendChild(listaTabela(rows));
+    const goQ = opts.goQ;
+    if (layout === 'cards') return container.appendChild(listaCards(rows, goQ));
+    if (layout === 'compacta') return container.appendChild(listaCompacta(rows, goQ));
+    return container.appendChild(listaTabela(rows, goQ));
   }
 
-  function listaTabela(rows) {
+  function procHref(numero, goQ) {
+    return `#/processo/${numero}` + (goQ ? `?q=${encodeURIComponent(goQ)}` : '');
+  }
+
+  function listaTabela(rows, goQ) {
     const wrap = el('div', { class: 'list-wrap' });
     const t = el('table', { class: 'ptable' });
     t.innerHTML = `<thead><tr>
@@ -261,7 +266,7 @@
     const tb = el('tbody');
     rows.forEach((p) => {
       const tr = el('tr');
-      tr.addEventListener('click', () => go(`#/processo/${p.numero}`));
+      tr.addEventListener('click', () => go(procHref(p.numero, goQ)));
       const tdStar = el('td', { class: 'col-star' }); tdStar.appendChild(starBtn(p));
       const tdCnj = el('td', {}, el('span', { class: 'cnj', text: fmtCNJ(p.numero, p.cnj) }));
       const tdCls = el('td');
@@ -281,11 +286,11 @@
     return wrap;
   }
 
-  function listaCards(rows) {
+  function listaCards(rows, goQ) {
     const grid = el('div', { class: 'cards' });
     rows.forEach((p) => {
       const c = el('div', { class: 'pcard' });
-      c.addEventListener('click', () => go(`#/processo/${p.numero}`));
+      c.addEventListener('click', () => go(procHref(p.numero, goQ)));
       const top = el('div', { class: 'pc-top' });
       top.appendChild(el('span', { class: 'cnj', text: fmtCNJ(p.numero, p.cnj) }));
       const s = starBtn(p); top.appendChild(s);
@@ -301,11 +306,11 @@
     return grid;
   }
 
-  function listaCompacta(rows) {
+  function listaCompacta(rows, goQ) {
     const wrap = el('div', { class: 'compact-list' });
     rows.forEach((p) => {
       const r = el('div', { class: 'crow' });
-      r.addEventListener('click', () => go(`#/processo/${p.numero}`));
+      r.addEventListener('click', () => go(procHref(p.numero, goQ)));
       const st = starBtn(p); st.style.flex = 'none';
       r.appendChild(st);
       r.appendChild(el('span', { class: 'cnj', text: fmtCNJ(p.numero, p.cnj) }));
@@ -389,7 +394,7 @@
         if (soFav) rows = rows.filter((r) => State.favSet.has(r.numero));
         meta.textContent = `${rows.length} de ${State.total}`;
       }
-      renderListaProcessos(rows, results);
+      renderListaProcessos(rows, results, { goQ: curQ.trim() || undefined });
     }
 
     let deb;
@@ -504,7 +509,8 @@
 
     const validTabs = new Set(tabsDef.map((t) => t.id));
     let aba = (sub && sub.tab && validTabs.has(sub.tab)) ? sub.tab : 'tudo';
-    let filtro = '';
+    let filtro = (sub && sub.q ? sub.q : '').toLowerCase();
+    if (filtro) searchInput.value = sub.q;
     function activate(tab) {
       aba = tab;
       $$('.tab', tabs).forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
@@ -691,6 +697,7 @@
   const _inc = (s, t) => String(s == null ? '' : s).toLowerCase().includes(t);
   const movMatch = (m, t) => _inc(m.descricao, t) || _inc(m.detalhe, t) || _inc(m.fonte, t);
   const comMatch = (c, t) => _inc(c.preview, t) || _inc(c.tipo_comunicacao, t) || _inc(c.tipo_documento, t) || _inc(c.nome_orgao, t);
+  const comMatchFull = (c, t) => comMatch(c, t) || _inc(Services.obterTextoComunicacao(c.id), t);
   const evMatch = (e, t) => _inc(e.evento, t);
 
   function renderTab(tab, p, sub, filtro) {
@@ -706,7 +713,7 @@
     const coms = Services.listarComunicacoes(p.numero).map((c) => ({ k: 'com', data: c.data_disponibilizacao, c }));
     const evs = Services.listarEventos(p.numero).map((e) => ({ k: 'evt', data: e.data_iso, e }));
     let all = [...movs, ...coms, ...evs];
-    if (t) all = all.filter((x) => x.k === 'mov' ? movMatch(x.m, t) : x.k === 'com' ? comMatch(x.c, t) : evMatch(x.e, t));
+    if (t) all = all.filter((x) => x.k === 'mov' ? movMatch(x.m, t) : x.k === 'com' ? comMatchFull(x.c, t) : evMatch(x.e, t));
     if (!all.length) return emptyState(t ? 'Nada encontrado' : 'Sem registros', t ? 'Nenhum item corresponde à busca.' : 'Este processo não possui registros.');
     all.sort((a, b) => { const da = a.data || '', db = b.data || ''; return da < db ? 1 : da > db ? -1 : 0; });
     const tl = el('div', { class: 'timeline' });
@@ -714,7 +721,8 @@
     all.forEach((x) => {
       if (x.k === 'mov') { const { card, src } = movCardBody(x.m); tl.appendChild(tlItem(x.data, src, card)); }
       else if (x.k === 'com') {
-        const com = comunicacaoItem(x.c, p, { expandAll: sub && sub.expandAll, inTimeline: true });
+        const autoExpand = (sub && sub.expandAll) || (!!t && !comMatch(x.c, t)); // expand se match só no texto completo
+        const com = comunicacaoItem(x.c, p, { expandAll: autoExpand, inTimeline: true });
         if (expandId && String(x.c.id) === expandId) { com._expand(); setTimeout(() => com.scrollIntoView({ block: 'center' }), 80); }
         tl.appendChild(tlItem(x.data, 'djen', com));
       } else { tl.appendChild(tlItem(x.data, 'evento', evCardBody(x.e))); }
@@ -733,12 +741,13 @@
 
   function tabComunicacoes(p, sub, t) {
     let coms = Services.listarComunicacoes(p.numero);
-    if (t) coms = coms.filter((c) => comMatch(c, t));
+    if (t) coms = coms.filter((c) => comMatchFull(c, t));
     if (!coms.length) return emptyState('Sem comunicações', t ? 'Nenhuma comunicação corresponde à busca.' : 'Não há comunicações (DJEN) para este processo.');
     const list = el('div', { class: 'com-list' });
     const expandId = sub && sub.comId ? String(sub.comId) : null;
     coms.forEach((c) => {
-      const com = comunicacaoItem(c, p, { expandAll: sub && sub.expandAll });
+      const autoExpand = (sub && sub.expandAll) || (!!t && !comMatch(c, t));
+      const com = comunicacaoItem(c, p, { expandAll: autoExpand });
       if (expandId && String(c.id) === expandId) { com._expand(); setTimeout(() => com.scrollIntoView({ block: 'center' }), 80); }
       list.appendChild(com);
     });
@@ -785,10 +794,22 @@
   }
   function painelRelacionados(nome, rel, setB, onPick) {
     const card = el('div', { class: 'adv-related' });
-    card.appendChild(el('h3', { text: nome }));
-    card.appendChild(el('div', { class: 'sub', text: `Top ${rel.length} advogados que mais atuam em conjunto — clique para ver os processos em comum` }));
+
+    // Header: título + subtítulo à esquerda, toggle Lista/Rede à direita
+    const toggle = el('div', { class: 'rel-toggle' });
+    const btnLista = el('button', { class: 'rel-toggle-btn active', text: 'Lista' });
+    const btnRede  = el('button', { class: 'rel-toggle-btn', text: 'Rede' });
+    toggle.append(btnLista, btnRede);
+
+    const head = el('div', { class: 'adv-related-head' });
+    const headLeft = el('div');
+    headLeft.appendChild(el('h3', { text: nome }));
+    headLeft.appendChild(el('div', { class: 'sub', text: `${rel.length} colaborador${rel.length !== 1 ? 'es' : ''} em processos — clique em um nome para ver os processos em comum` }));
+    head.append(headLeft, toggle);
+    card.appendChild(head);
+
     const max = rel[0].n_comum || 1;
-    const list = el('div', { class: 'rel-list' });
+    const relList = el('div', { class: 'rel-list' });
     rel.forEach((r, i) => {
       const it = el('div', { class: 'rel-item' });
       it.appendChild(el('span', { class: 'rel-rank', text: '#' + (i + 1) }));
@@ -799,9 +820,39 @@
       const bar = el('div', { class: 'rel-bar' }); const fill = el('i'); fill.style.width = Math.round((r.n_comum / max) * 100) + '%'; bar.appendChild(fill); it.appendChild(bar);
       it.appendChild(el('span', { class: 'rel-num', html: `<b>${r.n_comum}</b> em comum` }));
       it.addEventListener('click', () => { if (typeof setB === 'function') setB(r.nome); onPick(); });
-      list.appendChild(it);
+      relList.appendChild(it);
     });
-    card.appendChild(list);
+    card.appendChild(relList);
+
+    const grafoWrap = el('div', { class: 'grafo-wrap' });
+    grafoWrap.style.display = 'none';
+    card.appendChild(grafoWrap);
+
+    let grafoRendered = false;
+    function showLista() {
+      btnLista.classList.add('active'); btnRede.classList.remove('active');
+      relList.style.display = ''; grafoWrap.style.display = 'none';
+    }
+    function showRede() {
+      btnLista.classList.remove('active'); btnRede.classList.add('active');
+      relList.style.display = 'none'; grafoWrap.style.display = '';
+      if (!grafoRendered) {
+        grafoRendered = true;
+        if (window.GrafoAdv) {
+          GrafoAdv.loadD3()
+            .then(() => {
+              const gdata = Services.grafoAdvogado(nome, Math.min(rel.length, 50));
+              GrafoAdv.render(grafoWrap, nome, gdata);
+            })
+            .catch(() => { grafoWrap.textContent = 'Não foi possível carregar o diagrama.'; });
+        } else {
+          grafoWrap.textContent = 'grafo.js não carregado.';
+        }
+      }
+    }
+    btnLista.addEventListener('click', showLista);
+    btnRede.addEventListener('click', showRede);
+
     return card;
   }
 
@@ -846,7 +897,7 @@
       const sub = $('#adv-sub');
       if (!a) { renderDiretorio(sub); return; }
       sub.textContent = '';
-      const rel = Services.advogadosRelacionados(a, 5);
+      const rel = Services.advogadosRelacionados(a);
       if (rel.length) results.appendChild(painelRelacionados(a, rel, (v) => acB.setValue(v), navTo));
       const rows = b ? Services.buscarDoisAdvogados(a, b) : Services.buscarPorAdvogado(a);
       results.appendChild(el('p', { class: 'result-meta', html: b ? `<b>${rows.length}</b> processos com <b>${esc(a)}</b> e <b>${esc(b)}</b>` : `<b>${rows.length}</b> processos com <b>${esc(a)}</b>` }));
@@ -1134,7 +1185,7 @@
     if (parts[0] === 'processo') {
       const numero = parts[1];
       if (parts[2] === 'comunicacao' && parts[3]) return { screen: 'detalhe', numero, sub: { tab: 'comunicacoes', comId: parts[3] } };
-      return { screen: 'detalhe', numero, sub: {} };
+      return { screen: 'detalhe', numero, sub: params };
     }
     if (parts[0] === 'advogado') return { screen: 'advogado', params };
     if (parts[0] === 'agenda') return { screen: 'agenda', params };

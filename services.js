@@ -374,7 +374,7 @@
   }
   function statsAdvogados() { const { info } = _ensureAdv(); return { total: info.size }; }
 
-  function advogadosRelacionados(nome, limite = 5) {
+  function advogadosRelacionados(nome, limite = 999) {
     const { info, procToKeys } = _ensureAdv();
     const k = _advKey(nome);
     const rec = info.get(k);
@@ -395,7 +395,67 @@
       });
   }
 
-  /* ----------------------------------------------------- 5. Busca geral */
+  /* ----------------------------------- 5. Grafo completo de relações */
+  /**
+   * Retorna { nodes, edges } para o grafo Les-Misérables de `nome`.
+   * Nodes: advogado central + até `limiteNos` satélites (top por n_com_central).
+   * Edges: todos os pares com ≥1 processo em comum (inclui central↔satélite e satélite↔satélite).
+   */
+  function grafoAdvogado(nome, limiteNos) {
+    if (limiteNos === undefined) limiteNos = 50;
+    const { info, procToKeys } = _ensureAdv();
+    const k = _advKey(nome);
+    const rec = info.get(k);
+    if (!rec) return { nodes: [], edges: [] };
+
+    // Conexões diretas com o central
+    const cntCentral = new Map();
+    for (const numero of rec.numeros) {
+      for (const ok of (procToKeys.get(numero) || [])) {
+        if (ok === k) continue;
+        cntCentral.set(ok, (cntCentral.get(ok) || 0) + 1);
+      }
+    }
+
+    // Top N satélites por n_com_central
+    const satKeys = [...cntCentral.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limiteNos)
+      .map(([ok]) => ok);
+
+    const allKeys = [k, ...satKeys];
+
+    // Nós
+    const nodes = allKeys.map((ok) => {
+      const r = info.get(ok);
+      return {
+        id:            r ? r.nome : ok,
+        nome:          r ? r.nome : ok,
+        oab:           r ? r.oab  : '',
+        n_com_central: ok === k ? 0 : (cntCentral.get(ok) || 0),
+        central:       ok === k,
+      };
+    });
+
+    // Arestas — interseção de conjuntos de processos para cada par
+    const edges = [];
+    for (let i = 0; i < allKeys.length; i++) {
+      for (let j = i + 1; j < allKeys.length; j++) {
+        const ri = info.get(allKeys[i]);
+        const rj = info.get(allKeys[j]);
+        if (!ri || !rj) continue;
+        const [small, large] = ri.numeros.size <= rj.numeros.size
+          ? [ri, rj] : [rj, ri];
+        let shared = 0;
+        for (const num of small.numeros) { if (large.numeros.has(num)) shared++; }
+        if (shared > 0) edges.push({ source: ri.nome, target: rj.nome, n_comum: shared });
+      }
+    }
+
+    return { nodes, edges };
+  }
+
+  /* ----------------------------------------------------- 6. Busca geral */
   function buscaGeral(q) {
     const expr = ftsExpr(q);
     if (!expr) return [];
@@ -437,6 +497,7 @@
     listarAdvogados,
     statsAdvogados,
     advogadosRelacionados,
+    grafoAdvogado,
     buscaGeral,
   };
 })();
