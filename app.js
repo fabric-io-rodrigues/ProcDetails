@@ -792,38 +792,79 @@
     c.addEventListener('click', () => go('#/advogado?q=' + encodeURIComponent(x.nome)));
     return c;
   }
-  function painelRelacionados(nome, rel, setB, onPick) {
+  function painelRelacionados(nome, rel, setB, onPick, b) {
     const card = el('div', { class: 'adv-related' });
+    const compara = !!b;
+    const pontesData = compara ? Services.grafoPontes(nome, b) : null;
+    const pontes = pontesData ? pontesData.pontes : [];
+    const direto = pontesData ? pontesData.direto : [];
 
     // Header: título + subtítulo à esquerda, toggle Lista/Rede à direita
     const toggle = el('div', { class: 'rel-toggle' });
-    const btnLista = el('button', { class: 'rel-toggle-btn active', text: 'Lista' });
+    const btnLista = el('button', { class: 'rel-toggle-btn', text: 'Lista' });
     const btnRede  = el('button', { class: 'rel-toggle-btn', text: 'Rede' });
     toggle.append(btnLista, btnRede);
 
     const head = el('div', { class: 'adv-related-head' });
     const headLeft = el('div');
-    headLeft.appendChild(el('h3', { text: nome }));
-    headLeft.appendChild(el('div', { class: 'sub', text: `${rel.length} colaborador${rel.length !== 1 ? 'es' : ''} em processos — clique em um nome para ver os processos em comum` }));
+    if (compara) {
+      headLeft.appendChild(el('h3', { html: `${esc(nome)} <span class="rel-x">✕</span> ${esc(b)}` }));
+      const dir = direto.length ? ` · atuam juntos diretamente em ${direto.length} processo${direto.length !== 1 ? 's' : ''}` : '';
+      headLeft.appendChild(el('div', { class: 'sub', text: `${pontes.length} advogado${pontes.length !== 1 ? 's' : ''} em comum ligam os dois${dir}` }));
+    } else {
+      headLeft.appendChild(el('h3', { text: nome }));
+      headLeft.appendChild(el('div', { class: 'sub', text: `${rel.length} colaborador${rel.length !== 1 ? 'es' : ''} em processos — clique em um nome para comparar` }));
+    }
     head.append(headLeft, toggle);
     card.appendChild(head);
 
-    const max = rel[0].n_comum || 1;
+    /* ----- LISTA ----- */
     const relList = el('div', { class: 'rel-list' });
-    rel.forEach((r, i) => {
-      const it = el('div', { class: 'rel-item' });
-      it.appendChild(el('span', { class: 'rel-rank', text: '#' + (i + 1) }));
-      const nm = el('span', { class: 'rel-name' });
-      nm.appendChild(el('span', { text: r.nome }));
-      if (r.oab) nm.appendChild(el('span', { class: 'oab', text: r.oab.replace(/^OAB[\s/]*/i, '') }));
-      it.appendChild(nm);
-      const bar = el('div', { class: 'rel-bar' }); const fill = el('i'); fill.style.width = Math.round((r.n_comum / max) * 100) + '%'; bar.appendChild(fill); it.appendChild(bar);
-      it.appendChild(el('span', { class: 'rel-num', html: `<b>${r.n_comum}</b> em comum` }));
-      it.addEventListener('click', () => { if (typeof setB === 'function') setB(r.nome); onPick(); });
-      relList.appendChild(it);
-    });
+    if (compara) {
+      if (!pontes.length) {
+        relList.appendChild(el('p', { class: 'result-meta', text: 'Nenhum advogado em comum entre os dois.' }));
+      }
+      const maxP = pontes.length ? Math.max(...pontes.map((p) => Math.max(p.n_comA, p.n_comB))) : 1;
+      const firstName = (s) => String(s || '').trim().split(/\s+/)[0];
+      pontes.forEach((p, i) => {
+        const it = el('div', { class: 'rel-item rel-ponte' });
+        it.appendChild(el('span', { class: 'rel-rank', text: '#' + (i + 1) }));
+        const nm = el('span', { class: 'rel-name' });
+        nm.appendChild(el('span', { text: p.nome }));
+        if (p.oab) nm.appendChild(el('span', { class: 'oab', text: String(p.oab).replace(/^OAB[\s/]*/i, '') }));
+        it.appendChild(nm);
+        const dual = el('span', { class: 'rel-dual' });
+        const mk = (cls, n) => {
+          const seg = el('span', { class: 'rel-dual-seg ' + cls });
+          const bar = el('i'); bar.style.width = Math.round((n / maxP) * 100) + '%';
+          seg.appendChild(bar);
+          seg.appendChild(el('b', { text: String(n) }));
+          return seg;
+        };
+        dual.append(mk('seg-a', p.n_comA), mk('seg-b', p.n_comB));
+        it.appendChild(dual);
+        it.title = `${p.n_comA} processo(s) com ${firstName(nome)} · ${p.n_comB} com ${firstName(b)}`;
+        it.addEventListener('click', () => go('#/advogado?q=' + encodeURIComponent(p.nome)));
+        relList.appendChild(it);
+      });
+    } else {
+      const max = rel[0].n_comum || 1;
+      rel.forEach((r, i) => {
+        const it = el('div', { class: 'rel-item' });
+        it.appendChild(el('span', { class: 'rel-rank', text: '#' + (i + 1) }));
+        const nm = el('span', { class: 'rel-name' });
+        nm.appendChild(el('span', { text: r.nome }));
+        if (r.oab) nm.appendChild(el('span', { class: 'oab', text: r.oab.replace(/^OAB[\s/]*/i, '') }));
+        it.appendChild(nm);
+        const bar = el('div', { class: 'rel-bar' }); const fill = el('i'); fill.style.width = Math.round((r.n_comum / max) * 100) + '%'; bar.appendChild(fill); it.appendChild(bar);
+        it.appendChild(el('span', { class: 'rel-num', html: `<b>${r.n_comum}</b> em comum` }));
+        it.addEventListener('click', () => { if (typeof setB === 'function') setB(r.nome); onPick(); });
+        relList.appendChild(it);
+      });
+    }
     card.appendChild(relList);
 
+    /* ----- REDE (grafo) ----- */
     const grafoWrap = el('div', { class: 'grafo-wrap' });
     grafoWrap.style.display = 'none';
     card.appendChild(grafoWrap);
@@ -841,8 +882,12 @@
         if (window.GrafoAdv) {
           GrafoAdv.loadD3()
             .then(() => {
-              const gdata = Services.grafoAdvogado(nome, Math.min(rel.length, 50));
-              GrafoAdv.render(grafoWrap, nome, gdata);
+              if (compara) {
+                GrafoAdv.renderPontes(grafoWrap, pontesData);
+              } else {
+                const gdata = Services.grafoAdvogado(nome, Math.min(rel.length, 50));
+                GrafoAdv.render(grafoWrap, nome, gdata);
+              }
             })
             .catch(() => { grafoWrap.textContent = 'Não foi possível carregar o diagrama.'; });
         } else {
@@ -853,6 +898,33 @@
     btnLista.addEventListener('click', showLista);
     btnRede.addEventListener('click', showRede);
 
+    // Ao comparar dois advogados, a Rede é a visão mais útil → abre nela.
+    if (compara) showRede(); else showLista();
+
+    return card;
+  }
+
+  /* Seção: overview da atuação do advogado (treemap tribunal → vara) */
+  function painelAtuacao(nome) {
+    const card = el('div', { class: 'adv-related adv-atuacao' });
+    const head = el('div', { class: 'adv-related-head' });
+    const headLeft = el('div');
+    headLeft.appendChild(el('h3', { text: 'Atuação por tribunal e vara' }));
+    headLeft.appendChild(el('div', { class: 'sub', text: 'Área proporcional ao nº de comunicações — passe o mouse para detalhes' }));
+    head.appendChild(headLeft);
+    card.appendChild(head);
+
+    const wrap = el('div', { class: 'treemap-wrap' });
+    wrap.textContent = 'Carregando…';
+    card.appendChild(wrap);
+
+    if (window.Charts) {
+      Charts.loadD3()
+        .then(() => { Charts.renderTreemap(wrap, Services.atuacaoAdvogado(nome)); })
+        .catch(() => { wrap.textContent = 'Não foi possível carregar o treemap.'; });
+    } else {
+      wrap.textContent = 'charts.js não carregado.';
+    }
     return card;
   }
 
@@ -898,7 +970,8 @@
       if (!a) { renderDiretorio(sub); return; }
       sub.textContent = '';
       const rel = Services.advogadosRelacionados(a);
-      if (rel.length) results.appendChild(painelRelacionados(a, rel, (v) => acB.setValue(v), navTo));
+      if (rel.length || b) results.appendChild(painelRelacionados(a, rel, (v) => acB.setValue(v), navTo, b));
+      results.appendChild(painelAtuacao(a));
       const rows = b ? Services.buscarDoisAdvogados(a, b) : Services.buscarPorAdvogado(a);
       results.appendChild(el('p', { class: 'result-meta', html: b ? `<b>${rows.length}</b> processos com <b>${esc(a)}</b> e <b>${esc(b)}</b>` : `<b>${rows.length}</b> processos com <b>${esc(a)}</b>` }));
       const cont = el('div'); renderListaProcessos(rows, cont); results.appendChild(cont);

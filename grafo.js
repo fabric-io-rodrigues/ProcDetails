@@ -280,5 +280,157 @@
     }
   }
 
-  window.GrafoAdv = { loadD3, render };
+  /* ==========================================================================
+     renderPontes — grafo "A ✕ B": dois polos e os advogados-ponte no meio.
+       data = { A:{nome,oab,n}, B:{nome,oab,n}, direto:[...], pontes:[{nome,oab,n_comA,n_comB}] }
+     ========================================================================== */
+  function renderPontes(container, data) {
+    const A = data && data.A, B = data && data.B;
+    const pontes = (data && data.pontes) || [];
+
+    container.querySelectorAll('svg, .grafo-tooltip, .grafo-reset, .grafo-hint, .grafo-empty, .grafo-poles').forEach(e => e.remove());
+
+    if (!A || !B) { container.textContent = 'Selecione dois advogados.'; return; }
+
+    const accent  = cssVar('--accent')  || '#0E7C66';
+    const accentInk = cssVar('--accent-ink') || '#fff';
+    const ink     = cssVar('--ink')     || '#161B22';
+    const muted   = cssVar('--muted')   || '#6B7585';
+    const faint   = cssVar('--faint')   || '#97A0AE';
+    const line    = cssVar('--line')    || '#E0E4EA';
+    const surface = cssVar('--surface') || '#FFFFFF';
+    const accent2 = '#C77D1A'; // segunda cor (polo B) — quente, contrasta com o accent
+
+    if (!pontes.length) {
+      const d = document.createElement('div');
+      d.className = 'grafo-empty';
+      d.innerHTML = `Nenhum advogado em comum liga <b>${esc(A.nome.split(' ')[0])}</b> e <b>${esc(B.nome.split(' ')[0])}</b>.` +
+        (data.direto && data.direto.length ? `<br><span style="color:${muted}">Mas atuam juntos em ${data.direto.length} processo(s) diretamente.</span>` : '');
+      container.appendChild(d);
+      return;
+    }
+
+    const W = container.clientWidth || 540;
+    const N = pontes.length;
+    const H = Math.max(360, Math.min(720, 160 + N * 26));
+    container.style.height = H + 'px';
+
+    const maxEdge = pontes.reduce((m, p) => Math.max(m, p.n_comA, p.n_comB), 1);
+    const xA = 64, xB = W - 64;
+
+    // nós
+    const nA = { id: '__A__', nome: A.nome, oab: A.oab, pole: 'A', fx: xA, fy: H / 2 };
+    const nB = { id: '__B__', nome: B.nome, oab: B.oab, pole: 'B', fx: xB, fy: H / 2 };
+    const mid = pontes.map((p, i) => ({
+      id: 'p' + i, nome: p.nome, oab: p.oab, n_comA: p.n_comA, n_comB: p.n_comB,
+      // posição-alvo horizontal: pende para o polo com quem compartilha mais processos
+      tx: xA + (p.n_comB / (p.n_comA + p.n_comB)) * (xB - xA),
+    }));
+    const nodes = [nA, nB, ...mid];
+
+    const links = [];
+    mid.forEach((m) => {
+      links.push({ source: nA, target: m, w: m.n_comA });
+      links.push({ source: m, target: nB, w: m.n_comB });
+    });
+
+    const edgeW = (w) => 0.8 + (w / maxEdge) * 4.0;
+    const edgeOp = (w) => 0.25 + 0.55 * (w / maxEdge);
+    const midR = (m) => 6 + Math.round((Math.min(m.n_comA, m.n_comB) / maxEdge) * 10);
+
+    const svg = d3.select(container).append('svg').attr('width', W).attr('height', H).style('cursor', 'grab');
+    const zoomG = svg.append('g');
+    const zoom = d3.zoom().scaleExtent([0.4, 4]).on('zoom', (ev) => zoomG.attr('transform', ev.transform));
+    svg.call(zoom);
+
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'grafo-reset';
+    resetBtn.title = 'Resetar zoom';
+    resetBtn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1 5V1h4M15 5V1h-4M1 11v4h4M15 11v4h-4"/></svg>';
+    container.appendChild(resetBtn);
+    resetBtn.addEventListener('click', () => svg.transition().duration(350).call(zoom.transform, d3.zoomIdentity));
+
+    const tip = document.createElement('div');
+    tip.className = 'grafo-tooltip';
+    container.appendChild(tip);
+
+    const sim = d3.forceSimulation(nodes)
+      .force('link', d3.forceLink(links).distance(d => 70).strength(0.25))
+      .force('charge', d3.forceManyBody().strength(-160).distanceMax(280))
+      .force('x', d3.forceX(d => d.pole ? (d.pole === 'A' ? xA : xB) : d.tx).strength(d => d.pole ? 1 : 0.45))
+      .force('y', d3.forceY(H / 2).strength(0.05))
+      .force('collision', d3.forceCollide().radius(d => (d.pole ? 26 : midR(d) + 12)));
+
+    const linkSel = zoomG.append('g').selectAll('line').data(links).join('line')
+      .attr('stroke', d => (d.source.pole === 'A' || d.target.pole === 'A') ? accent : accent2)
+      .attr('stroke-opacity', d => edgeOp(d.w))
+      .attr('stroke-width', d => edgeW(d.w));
+
+    const clampX = v => Math.max(20, Math.min(W - 20, v || 0));
+    const clampY = v => Math.max(20, Math.min(H - 20, v || 0));
+
+    const nodeG = zoomG.append('g').selectAll('g').data(nodes).join('g').style('cursor', 'grab');
+
+    // polos (A e B) — círculos grandes coloridos
+    nodeG.filter(d => d.pole).append('circle')
+      .attr('r', 20)
+      .attr('fill', d => d.pole === 'A' ? accent : accent2)
+      .attr('stroke', surface).attr('stroke-width', 2);
+    nodeG.filter(d => d.pole).append('text')
+      .text(d => (d.nome || '?')[0].toUpperCase())
+      .attr('text-anchor', 'middle').attr('dominant-baseline', 'central')
+      .attr('font-size', 13).attr('font-weight', 700)
+      .attr('font-family', 'IBM Plex Sans, system-ui, sans-serif')
+      .attr('fill', accentInk).attr('pointer-events', 'none');
+
+    // pontes — círculos neutros
+    nodeG.filter(d => !d.pole).append('circle')
+      .attr('r', midR)
+      .attr('fill', faint).attr('fill-opacity', 0.85)
+      .attr('stroke', muted).attr('stroke-opacity', 0.5).attr('stroke-width', 1);
+
+    // rótulos
+    nodeG.append('text')
+      .text(d => abbrev(d.nome, !!d.pole))
+      .attr('text-anchor', 'middle')
+      .attr('y', d => (d.pole ? 34 : midR(d) + 12))
+      .attr('font-size', d => d.pole ? 11.5 : 10)
+      .attr('font-weight', d => d.pole ? 600 : 400)
+      .attr('font-family', 'IBM Plex Sans, system-ui, sans-serif')
+      .attr('fill', ink).attr('pointer-events', 'none');
+
+    nodeG.call(d3.drag()
+      .on('start', (ev, d) => { if (!ev.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag', (ev, d) => { d.fx = ev.x; d.fy = ev.y; })
+      .on('end', (ev, d) => { if (!ev.active) sim.alphaTarget(0); if (!d.pole) { d.fx = null; d.fy = null; } }));
+
+    nodeG.on('mouseenter', (ev, d) => {
+      let html = `<b>${esc(d.nome)}</b>`;
+      if (d.oab) html += ` <span style="font-family:monospace;font-size:10px;color:${muted}">${esc(String(d.oab).replace(/^OAB[\s/]*/i, ''))}</span>`;
+      if (d.pole) {
+        html += `<br><span style="font-size:11px;color:${muted}">${d.pole === 'A' ? 'advogado A' : 'advogado B'}</span>`;
+      } else {
+        html += `<br><span style="font-size:11px;color:${accent}">${d.n_comA} proc. com ${esc(A.nome.split(' ')[0])}</span>`;
+        html += `<br><span style="font-size:11px;color:${accent2}">${d.n_comB} proc. com ${esc(B.nome.split(' ')[0])}</span>`;
+      }
+      tip.innerHTML = html; tip.classList.add('show'); moveTip(ev);
+    }).on('mousemove', moveTip).on('mouseleave', () => tip.classList.remove('show'));
+
+    function moveTip(ev) {
+      const rect = container.getBoundingClientRect();
+      const x = ev.clientX - rect.left, y = ev.clientY - rect.top;
+      const tw = tip.offsetWidth || 190, th = tip.offsetHeight || 48;
+      tip.style.left = (x + 14 + tw > W ? x - tw - 8 : x + 14) + 'px';
+      tip.style.top = Math.max(4, Math.min(H - th - 4, y - th / 2)) + 'px';
+    }
+
+    sim.on('tick', () => {
+      linkSel
+        .attr('x1', d => clampX(d.source.x)).attr('y1', d => clampY(d.source.y))
+        .attr('x2', d => clampX(d.target.x)).attr('y2', d => clampY(d.target.y));
+      nodeG.attr('transform', d => `translate(${clampX(d.x)},${clampY(d.y)})`);
+    });
+  }
+
+  window.GrafoAdv = { loadD3, render, renderPontes };
 })();

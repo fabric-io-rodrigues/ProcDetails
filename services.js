@@ -455,6 +455,112 @@
     return { nodes, edges };
   }
 
+  /* ------------------------- 5b. Pontes entre dois advogados ----------
+   * Acha os advogados que compartilham processo com A E com B
+   * (o "advogado do meio" que conecta os dois). Co-ocorrência a nível
+   * de PROCESSO — o único disponível no banco web. */
+  function grafoPontes(nomeA, nomeB) {
+    const { info, procToKeys } = _ensureAdv();
+    const kA = _advKey(nomeA), kB = _advKey(nomeB);
+    const recA = info.get(kA), recB = info.get(kB);
+    if (!recA || !recB) return null;
+
+    // processos diretos em comum (A e B no mesmo processo)
+    const direto = [...recA.numeros].filter((n) => recB.numeros.has(n));
+
+    // candidatos = advogados que aparecem nos processos de A
+    const cA = new Map();
+    for (const n of recA.numeros) {
+      for (const ok of (procToKeys.get(n) || [])) {
+        if (ok === kA || ok === kB) continue;
+        cA.set(ok, (cA.get(ok) || 0) + 1);
+      }
+    }
+    // mantém só os que também aparecem em processos de B
+    const pontes = [];
+    for (const [ok, nA] of cA) {
+      const rec = info.get(ok);
+      if (!rec) continue;
+      let nB = 0;
+      for (const n of rec.numeros) if (recB.numeros.has(n)) nB++;
+      if (nB > 0) pontes.push({ nome: rec.nome, oab: rec.oab, key: ok, n_comA: nA, n_comB: nB });
+    }
+    // ordena por "gargalo" (min) e depois pela soma — pontes mais equilibradas no topo
+    pontes.sort((x, y) =>
+      (Math.min(y.n_comA, y.n_comB) - Math.min(x.n_comA, x.n_comB)) ||
+      ((y.n_comA + y.n_comB) - (x.n_comA + x.n_comB))
+    );
+
+    return {
+      A: { nome: recA.nome, oab: recA.oab, key: kA, n: recA.numeros.size },
+      B: { nome: recB.nome, oab: recB.oab, key: kB, n: recB.numeros.size },
+      direto,
+      pontes,
+    };
+  }
+
+  /* --------------------- 5c. Tribunal derivado do nº CNJ --------------
+   * O banco web não guarda siglaTribunal; derivamos do número (validado
+   * em 458/459 processos). Posições CNJ: ...[13]=segmento [14:16]=tribunal */
+  const _UF_EST = {
+    '01': 'AC', '02': 'AL', '03': 'AP', '04': 'AM', '05': 'BA', '06': 'CE',
+    '07': 'DFT', '08': 'ES', '09': 'GO', '10': 'MA', '11': 'MT', '12': 'MS',
+    '13': 'MG', '14': 'PA', '15': 'PB', '16': 'PR', '17': 'PE', '18': 'PI',
+    '19': 'RJ', '20': 'RN', '21': 'RS', '22': 'RO', '23': 'RR', '24': 'SC',
+    '25': 'SE', '26': 'SP', '27': 'TO',
+  };
+  function tribunalCNJ(numero) {
+    const d = String(numero || '').replace(/\D/g, '');
+    if (d.length !== 20) return '?';
+    const J = d[13], TR = d.slice(14, 16);
+    if (J === '8') return 'TJ' + (_UF_EST[TR] || TR);
+    if (J === '5') return 'TRT' + String(parseInt(TR, 10) || TR);
+    if (J === '4') return 'TRF' + String(parseInt(TR, 10) || TR);
+    if (J === '6') return 'TRE' + (_UF_EST[TR] || TR);
+    if (J === '3') return 'STJ';
+    if (J === '1') return 'STF';
+    if (J === '7') return 'JMU';
+    return 'J' + J + '-' + TR;
+  }
+
+  /* --------------------- 5d. Atuação do advogado (treemap) ------------
+   * Retorna { tribunais: [{ sigla, total, varas: [{orgao, n}] }] }
+   * onde n = nº de comunicações. Hierarquia tribunal → vara/órgão. */
+  function atuacaoAdvogado(nome) {
+    const { info } = _ensureAdv();
+    const rec = info.get(_advKey(nome));
+    if (!rec) return { tribunais: [] };
+    const nums = [...rec.numeros];
+    if (!nums.length) return { tribunais: [] };
+
+    const ph = nums.map(() => '?').join(',');
+    const rows = query(
+      `SELECT numero_processo AS np, nome_orgao AS orgao, COUNT(*) AS n
+       FROM comunicacoes WHERE numero_processo IN (${ph})
+       GROUP BY numero_processo, nome_orgao`,
+      nums
+    );
+
+    const trib = new Map(); // sigla -> Map(orgao -> count)
+    for (const r of rows) {
+      const t = tribunalCNJ(r.np);
+      const o = r.orgao || '(sem órgão)';
+      if (!trib.has(t)) trib.set(t, new Map());
+      const m = trib.get(t);
+      m.set(o, (m.get(o) || 0) + r.n);
+    }
+
+    const tribunais = [...trib.entries()].map(([sigla, m]) => ({
+      sigla,
+      total: [...m.values()].reduce((a, b) => a + b, 0),
+      varas: [...m.entries()]
+        .map(([orgao, n]) => ({ orgao, n }))
+        .sort((a, b) => b.n - a.n),
+    })).sort((a, b) => b.total - a.total);
+
+    return { tribunais };
+  }
+
   /* ----------------------------------------------------- 6. Busca geral */
   function buscaGeral(q) {
     const expr = ftsExpr(q);
@@ -498,6 +604,9 @@
     statsAdvogados,
     advogadosRelacionados,
     grafoAdvogado,
+    grafoPontes,
+    atuacaoAdvogado,
+    tribunalCNJ,
     buscaGeral,
   };
 })();
