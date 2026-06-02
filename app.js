@@ -209,10 +209,6 @@
   // telas que mantêm contexto ao voltar (lista/busca, advogados, agenda, favoritos)
   const SCROLL_KEEP = new Set(['lista', 'advogado', 'agenda', 'favoritos']);
 
-  // "home" = a listagem principal (#/ ou vazio). Usado para o back abrir o menu no mobile.
-  function isHome(h) { const s = (h == null ? location.hash : h).replace(/^#/, ''); return s === '' || s === '/'; }
-  let _armHomeGuard = function () {}; // definido em initChrome
-
   async function carregarFavoritos() {
     const favs = await Store.listarFavoritos();
     State.favSet = new Set(favs.map((f) => f.numero));
@@ -1399,9 +1395,6 @@
       });
     }
     State.restoringContext = false;
-
-    // 3) na home, arma o "guard" de histórico → back (swipe) abre o menu lateral
-    if (isHome(newHash)) _armHomeGuard();
   }
 
   /* ============================== tema ================================= */
@@ -1484,49 +1477,15 @@
   function initChrome() {
     $('#btn-collapse').addEventListener('click', () => $('#app').classList.toggle('collapsed'));
     const app = $('#app');
-
-    /* ---- drawer (menu lateral) + integração com o botão/gesto "voltar" ----
-       No mobile, "descansando" na home o back (swipe) abre o menu; com o menu
-       aberto o back o fecha. Em telas internas o back navega normalmente.
-       Implementado com uma entrada-guard no history (pushState mesma URL). */
-    let guardArmed = false, ignorePop = false;
-    const drawerOpen = () => app.classList.contains('drawer-open');
-    const pushGuard = () => { if (!guardArmed) { guardArmed = true; history.pushState({ pdGuard: 1 }, ''); } };
-
-    const openDrawer = () => { app.classList.add('drawer-open'); pushGuard(); };
-    // fecha removendo a entrada-guard (scrim) — back não fica "sobrando"
-    const closeDrawer = () => {
-      if (!drawerOpen()) return;
-      app.classList.remove('drawer-open');
-      if (guardArmed) { guardArmed = false; ignorePop = true; history.back(); }
-    };
-    // fecha sem mexer no histórico (quando a própria navegação já avança)
-    const closeDrawerSilent = () => { app.classList.remove('drawer-open'); guardArmed = false; };
-
-    // route() chama isto ao "descansar" na home, armando o guard p/ o back abrir o menu
-    _armHomeGuard = () => { if (!guardArmed && isHome() && !drawerOpen()) pushGuard(); };
-
+    const openDrawer = () => app.classList.add('drawer-open');
+    const closeDrawer = () => app.classList.remove('drawer-open');
     const btnD = $('#btn-drawer'); if (btnD) btnD.addEventListener('click', openDrawer);
     const scrim = $('#drawer-scrim'); if (scrim) scrim.addEventListener('click', closeDrawer);
-    $$('.nav-item').forEach((a) => a.addEventListener('click', closeDrawerSilent));
-    const railAll = $('.fav-rail-all'); if (railAll) railAll.addEventListener('click', closeDrawerSilent);
-    const favList = $('#fav-rail-list'); if (favList) favList.addEventListener('click', closeDrawerSilent);
-    const brand = $('.brand'); if (brand) brand.addEventListener('click', closeDrawerSilent);
-    window.addEventListener('hashchange', closeDrawerSilent);
-
-    window.addEventListener('popstate', () => {
-      if (ignorePop) { ignorePop = false; if (isHome()) _armHomeGuard(); return; }
-      if (drawerOpen()) {                       // back com o menu aberto → fecha (e re-arma)
-        app.classList.remove('drawer-open'); guardArmed = false;
-        if (isHome()) _armHomeGuard();
-        return;
-      }
-      // back "descansando" na home (popou o guard, sem troca de rota) → abre o menu.
-      // State.curHash ainda é a rota anterior (route() só roda no hashchange, após o popstate).
-      if (isHome(location.hash) && isHome(State.curHash)) {
-        app.classList.add('drawer-open'); guardArmed = false; pushGuard(); // re-arma já com o menu aberto
-      }
-    });
+    $$('.nav-item').forEach((a) => a.addEventListener('click', closeDrawer));
+    const railAll = $('.fav-rail-all'); if (railAll) railAll.addEventListener('click', closeDrawer);
+    const favList = $('#fav-rail-list'); if (favList) favList.addEventListener('click', closeDrawer);
+    const brand = $('.brand'); if (brand) brand.addEventListener('click', closeDrawer);
+    window.addEventListener('hashchange', closeDrawer);
     const btnTM = $('#btn-theme-mobile');
     if (btnTM) btnTM.addEventListener('click', () => {
       const seq = ['light', 'dark', 'system'];

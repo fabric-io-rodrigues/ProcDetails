@@ -692,7 +692,8 @@ select.input { appearance: none; padding-right: 34px;
 @media (max-width: 760px) {
   /* layout vira coluna única; sidebar sai do fluxo (off-canvas) */
   .app, .app.collapsed { grid-template-columns: 1fr; }
-  .main { padding-top: 54px; touch-action: pan-y; padding-bottom: env(safe-area-inset-bottom); }
+  /* topo: altura da barra + área segura (notch); base: área segura (home indicator) */
+  .main { padding-top: calc(54px + env(safe-area-inset-top)); touch-action: pan-y; padding-bottom: env(safe-area-inset-bottom); }
 
   /* movimento lateral desativado (sensação de app): só rolagem vertical.
      Exceções: abas roláveis e o grafo (que captura o próprio gesto). */
@@ -702,22 +703,24 @@ select.input { appearance: none; padding-right: 34px;
   /* barras duplas A/B mais estreitas no celular */
   .rel-dual { width: 92px; }
 
-  /* barra superior fixa */
+  /* barra superior fixa — respeita o notch (safe-area no topo) */
   .mobile-bar {
     display: flex; align-items: center; gap: 10px;
-    position: fixed; top: 0; left: 0; right: 0; height: 54px; z-index: 60;
-    padding: 0 10px; background: var(--surface); border-bottom: 1px solid var(--line);
+    position: fixed; top: 0; left: 0; right: 0; z-index: 60;
+    height: calc(54px + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 10px 0; background: var(--surface); border-bottom: 1px solid var(--line);
   }
   .mb-btn { width: 40px; height: 40px; flex: none; border: none; background: transparent; color: var(--ink-2); border-radius: var(--r-sm); display: grid; place-items: center; }
   .mb-btn:active { background: var(--hover); }
   .mb-brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 15px; flex: 1; }
   .mb-brand .brand-glyph { width: 28px; height: 28px; border-radius: 7px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-size: 17px; }
 
-  /* sidebar como drawer deslizante */
+  /* sidebar como drawer deslizante — respeita notch (topo) e home indicator (base) */
   .sidebar {
     position: fixed; top: 0; bottom: 0; left: 0; width: 280px; max-width: 84vw; z-index: 70;
     transform: translateX(-102%); transition: transform .24s cubic-bezier(.4,0,.2,1);
     box-shadow: var(--shadow-2);
+    padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
   }
   .app.drawer-open .sidebar { transform: none; }
   .drawer-scrim { display: block; position: fixed; inset: 0; z-index: 65; background: color-mix(in oklch, #000 45%, transparent); opacity: 0; pointer-events: none; transition: opacity .24s; }
@@ -795,13 +798,6 @@ select.input { appearance: none; padding-right: 34px;
   .com-btn { height: 36px; padding: 0 12px; }
   .com-preview, .com-full, .com-sub { padding-left: 14px; padding-right: 14px; }
 }
-@media (max-width: 760px) and (display-mode: standalone) {
-  .mobile-bar { padding-top: env(safe-area-inset-top); height: calc(54px + env(safe-area-inset-top)); }
-  /* o conteúdo precisa começar abaixo da barra + área segura (notch), senão o
-     topo do conteúdo fica escondido sob a barra no app instalado */
-  .main { padding-top: calc(54px + env(safe-area-inset-top)); }
-}
-
 /* --------------------------------------------------------------- IMPRESSÃO */
 @media print {
   @page { margin: 14mm; }
