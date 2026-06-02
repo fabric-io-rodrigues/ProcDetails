@@ -32,9 +32,23 @@
   const SOFT_PALETTE = ['#6366F1', '#0E9F8E', '#C77D1A', '#D9456E', '#8B5CF6', '#2E8BD6', '#CC5A3A', '#3C9A5F', '#0E8CA8', '#B5559E'];
   function hashStr(s) { let h = 0; const str = String(s || '').toLowerCase(); for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0; return h; }
   function colorFor(s) { return SOFT_PALETTE[hashStr(s) % SOFT_PALETTE.length]; }
+
+  /* ---- tags hierárquicas: "Familia/Guarda" (aceita \ ou /) ---- */
+  function normTag(t) {
+    return String(t || '').replace(/\\/g, '/').split('/').map((s) => s.trim()).filter(Boolean).join('/');
+  }
+  function tagParts(t) { return normTag(t).split('/').filter(Boolean); }
+  function tagRoot(t)  { return tagParts(t)[0] || ''; }
+  // cor pela RAIZ → "Familia/Guarda" e "Familia/Pensao" compartilham a cor
   function tagChip(t, extraClass) {
-    const c = el('span', { class: 'chip tag' + (extraClass ? ' ' + extraClass : ''), text: t });
-    c.style.setProperty('--c', colorFor(t));
+    const parts = tagParts(t);
+    const c = el('span', { class: 'chip tag' + (parts.length > 1 ? ' tag-hier' : '') + (extraClass ? ' ' + extraClass : '') });
+    c.style.setProperty('--c', colorFor(parts[0] || t));
+    parts.forEach((p, i) => {
+      if (i > 0) c.appendChild(el('span', { class: 'tag-sep', text: '/' }));
+      c.appendChild(el('span', { class: 'tag-seg' + (i === parts.length - 1 ? ' leaf' : ''), text: p }));
+    });
+    if (!parts.length) c.textContent = t;
     return c;
   }
 
@@ -50,10 +64,10 @@
     const overlay = el('div', { class: 'modal-overlay' });
     const card = el('div', { class: 'modal-card' });
     card.appendChild(el('h3', { class: 'modal-title', text: titulo }));
-    card.appendChild(el('p', { class: 'modal-sub', text: 'Pressione Enter ou vírgula para adicionar. Backspace remove a última.' }));
+    card.appendChild(el('p', { class: 'modal-sub', text: 'Enter ou vírgula adiciona. Use “/” para hierarquia (ex.: Família/Guarda). Backspace remove a última.' }));
 
     const tagInput = el('div', { class: 'tag-input' });
-    const field = el('input', { class: 'tag-input-field', type: 'text', placeholder: 'Adicionar tag…' });
+    const field = el('input', { class: 'tag-input-field', type: 'text', placeholder: 'Adicionar tag… (ex.: Família/Guarda)' });
     tagInput.appendChild(field);
     card.appendChild(tagInput);
 
@@ -63,23 +77,33 @@
     function renderChips() {
       [...tagInput.querySelectorAll('.tag-chip')].forEach((n) => n.remove());
       tags.forEach((t, i) => {
-        const c = el('span', { class: 'tag-chip' });
-        c.style.setProperty('--c', colorFor(t));
-        c.appendChild(el('span', { text: t }));
+        const parts = tagParts(t);
+        const c = el('span', { class: 'tag-chip' + (parts.length > 1 ? ' tag-hier' : '') });
+        c.style.setProperty('--c', colorFor(parts[0] || t));
+        const lbl = el('span');
+        parts.forEach((p, j) => {
+          if (j > 0) lbl.appendChild(el('span', { class: 'tag-sep', text: '/' }));
+          lbl.appendChild(el('span', { class: 'tag-seg' + (j === parts.length - 1 ? ' leaf' : ''), text: p }));
+        });
+        if (!parts.length) lbl.textContent = t;
+        c.appendChild(lbl);
         const x = el('button', { class: 'tx', type: 'button', text: '✕' });
         x.addEventListener('click', () => { tags.splice(i, 1); renderChips(); renderSugg(); field.focus(); });
         c.appendChild(x);
         tagInput.insertBefore(c, field);
       });
     }
-    function addTag(v) { v = (v || '').trim(); if (v && !tags.includes(v)) { tags.push(v); renderChips(); renderSugg(); } }
+    function addTag(v) { v = normTag(v); if (v && !tags.includes(v)) { tags.push(v); renderChips(); renderSugg(); } }
     async function renderSugg() {
       let all = []; try { all = await Store.todasTags(); } catch (e) {}
+      // sugere tags existentes E os ramos-pai já usados (para reaproveitar hierarquia)
+      const roots = new Set(all.map(tagRoot).filter(Boolean));
+      const opcoes = [...new Set([...roots, ...all])].sort((a, b) => a.localeCompare(b, 'pt'));
       sugg.innerHTML = '';
-      const avail = all.filter((t) => !tags.includes(t));
+      const avail = opcoes.filter((t) => !tags.includes(t));
       if (!avail.length) return;
       sugg.appendChild(el('span', { class: 'tag-sugg-label', text: 'Existentes:' }));
-      avail.slice(0, 14).forEach((t) => {
+      avail.slice(0, 16).forEach((t) => {
         const b = el('button', { class: 'tag-sugg-chip', type: 'button', text: t });
         b.addEventListener('click', () => { addTag(t); field.focus(); });
         sugg.appendChild(b);
@@ -184,6 +208,10 @@
 
   // telas que mantêm contexto ao voltar (lista/busca, advogados, agenda, favoritos)
   const SCROLL_KEEP = new Set(['lista', 'advogado', 'agenda', 'favoritos']);
+
+  // "home" = a listagem principal (#/ ou vazio). Usado para o back abrir o menu no mobile.
+  function isHome(h) { const s = (h == null ? location.hash : h).replace(/^#/, ''); return s === '' || s === '/'; }
+  let _armHomeGuard = function () {}; // definido em initChrome
 
   async function carregarFavoritos() {
     const favs = await Store.listarFavoritos();
@@ -521,8 +549,9 @@
 
     const validTabs = new Set(tabsDef.map((t) => t.id));
     let aba = (sub && sub.tab && validTabs.has(sub.tab)) ? sub.tab : 'tudo';
-    let filtro = (sub && sub.q ? sub.q : '').toLowerCase();
-    if (filtro) searchInput.value = sub.q;
+    // a busca da timeline é independente da busca da lista principal.
+    // (sub.q vem da URL só para o "voltar" preservar o contexto da lista.)
+    let filtro = '';
     function activate(tab) {
       aba = tab;
       $$('.tab', tabs).forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
@@ -1239,11 +1268,15 @@
     top.appendChild(el('div', { class: 'topbar-row', html: `<h1 class="page-title">Favoritos</h1><span class="page-sub">${favs.length} processo${favs.length===1?'':'s'}</span>` }));
     let filtroTag = null;
     if (tags.length) {
+      // chips = raízes "guarda-chuva" (que têm filhos) + tags completas, ordenadas
+      const roots = [...new Set(tags.map(tagRoot).filter(Boolean))];
+      const rootsComFilho = roots.filter((r) => tags.some((t) => t.startsWith(r + '/')));
+      const chipTags = [...new Set([...rootsComFilho, ...tags])].sort((a, b) => a.localeCompare(b, 'pt'));
       const chips = el('div', { class: 'chips', style: 'margin-top:14px;' });
       const all = el('span', { class: 'chip tag active', text: 'Todas' });
       chips.appendChild(all);
       const tagEls = [all];
-      tags.forEach((t) => { const c = tagChip(t); chips.appendChild(c); tagEls.push(c); c._tag = t; });
+      chipTags.forEach((t) => { const c = tagChip(t); chips.appendChild(c); tagEls.push(c); c._tag = t; });
       tagEls.forEach((c) => c.addEventListener('click', () => { filtroTag = c._tag || null; tagEls.forEach((x) => x.classList.toggle('active', x === c)); render(); }));
       top.appendChild(chips);
     }
@@ -1255,7 +1288,8 @@
     function render() {
       results.innerHTML = '';
       let lista = favs;
-      if (filtroTag) lista = favs.filter((f) => (f.tags || []).includes(filtroTag));
+      // filtro hierárquico: "Família" casa com "Família", "Família/Guarda", "Família/Pensao"…
+      if (filtroTag) lista = favs.filter((f) => (f.tags || []).some((t) => t === filtroTag || t.startsWith(filtroTag + '/')));
       if (!lista.length) { results.appendChild(emptyState('Nenhum favorito', filtroTag ? 'Nenhum favorito com essa tag.' : 'Favorite processos na lista ou no detalhe para acompanhá-los aqui.', '<path d="M12 4l2.5 5 5.5.8-4 3.9.9 5.5L12 16.5 7.1 19l.9-5.5-4-3.9L9.5 9z"/>')); return; }
       lista.forEach((f) => {
         const p = Services.obterProcesso(f.numero);
@@ -1365,6 +1399,9 @@
       });
     }
     State.restoringContext = false;
+
+    // 3) na home, arma o "guard" de histórico → back (swipe) abre o menu lateral
+    if (isHome(newHash)) _armHomeGuard();
   }
 
   /* ============================== tema ================================= */
@@ -1447,15 +1484,49 @@
   function initChrome() {
     $('#btn-collapse').addEventListener('click', () => $('#app').classList.toggle('collapsed'));
     const app = $('#app');
-    const openDrawer = () => app.classList.add('drawer-open');
-    const closeDrawer = () => app.classList.remove('drawer-open');
+
+    /* ---- drawer (menu lateral) + integração com o botão/gesto "voltar" ----
+       No mobile, "descansando" na home o back (swipe) abre o menu; com o menu
+       aberto o back o fecha. Em telas internas o back navega normalmente.
+       Implementado com uma entrada-guard no history (pushState mesma URL). */
+    let guardArmed = false, ignorePop = false;
+    const drawerOpen = () => app.classList.contains('drawer-open');
+    const pushGuard = () => { if (!guardArmed) { guardArmed = true; history.pushState({ pdGuard: 1 }, ''); } };
+
+    const openDrawer = () => { app.classList.add('drawer-open'); pushGuard(); };
+    // fecha removendo a entrada-guard (scrim) — back não fica "sobrando"
+    const closeDrawer = () => {
+      if (!drawerOpen()) return;
+      app.classList.remove('drawer-open');
+      if (guardArmed) { guardArmed = false; ignorePop = true; history.back(); }
+    };
+    // fecha sem mexer no histórico (quando a própria navegação já avança)
+    const closeDrawerSilent = () => { app.classList.remove('drawer-open'); guardArmed = false; };
+
+    // route() chama isto ao "descansar" na home, armando o guard p/ o back abrir o menu
+    _armHomeGuard = () => { if (!guardArmed && isHome() && !drawerOpen()) pushGuard(); };
+
     const btnD = $('#btn-drawer'); if (btnD) btnD.addEventListener('click', openDrawer);
     const scrim = $('#drawer-scrim'); if (scrim) scrim.addEventListener('click', closeDrawer);
-    $$('.nav-item').forEach((a) => a.addEventListener('click', closeDrawer));
-    const railAll = $('.fav-rail-all'); if (railAll) railAll.addEventListener('click', closeDrawer);
-    const favList = $('#fav-rail-list'); if (favList) favList.addEventListener('click', closeDrawer);
-    const brand = $('.brand'); if (brand) brand.addEventListener('click', closeDrawer);
-    window.addEventListener('hashchange', closeDrawer);
+    $$('.nav-item').forEach((a) => a.addEventListener('click', closeDrawerSilent));
+    const railAll = $('.fav-rail-all'); if (railAll) railAll.addEventListener('click', closeDrawerSilent);
+    const favList = $('#fav-rail-list'); if (favList) favList.addEventListener('click', closeDrawerSilent);
+    const brand = $('.brand'); if (brand) brand.addEventListener('click', closeDrawerSilent);
+    window.addEventListener('hashchange', closeDrawerSilent);
+
+    window.addEventListener('popstate', () => {
+      if (ignorePop) { ignorePop = false; if (isHome()) _armHomeGuard(); return; }
+      if (drawerOpen()) {                       // back com o menu aberto → fecha (e re-arma)
+        app.classList.remove('drawer-open'); guardArmed = false;
+        if (isHome()) _armHomeGuard();
+        return;
+      }
+      // back "descansando" na home (popou o guard, sem troca de rota) → abre o menu.
+      // State.curHash ainda é a rota anterior (route() só roda no hashchange, após o popstate).
+      if (isHome(location.hash) && isHome(State.curHash)) {
+        app.classList.add('drawer-open'); guardArmed = false; pushGuard(); // re-arma já com o menu aberto
+      }
+    });
     const btnTM = $('#btn-theme-mobile');
     if (btnTM) btnTM.addEventListener('click', () => {
       const seq = ['light', 'dark', 'system'];

@@ -145,7 +145,7 @@ button { font-family: inherit; cursor: pointer; }
 .login-hint code { font-family: var(--mono); background: var(--surface-3); padding: 1px 6px; border-radius: 4px; color: var(--ink-2); }
 
 /* --------------------------------------------------------------- layout */
-.app { display: grid; grid-template-columns: var(--side-w) 1fr; height: 100vh; }
+.app { display: grid; grid-template-columns: var(--side-w) 1fr; height: 100vh; height: 100dvh; }
 .app.collapsed { grid-template-columns: var(--side-w-collapsed) 1fr; }
 
 /* --------------------------------------------------------------- sidebar */
@@ -674,6 +674,11 @@ select.input { appearance: none; padding-right: 34px;
 .tag-sugg-chip:hover { border-style: solid; border-color: var(--accent); color: var(--accent); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 20px; }
 
+/* tags hierárquicas (Família/Guarda): separador suave, folha em destaque */
+.tag-sep { opacity: .45; margin: 0 1px; font-weight: 400; }
+.tag-hier .tag-seg:not(.leaf) { opacity: .72; font-weight: 500; }
+.tag-hier .tag-seg.leaf { font-weight: 600; }
+
 /* --------------------------------------------------------------- mobile chrome */
 .mobile-bar { display: none; }
 .drawer-scrim { display: none; }
@@ -687,7 +692,7 @@ select.input { appearance: none; padding-right: 34px;
 @media (max-width: 760px) {
   /* layout vira coluna única; sidebar sai do fluxo (off-canvas) */
   .app, .app.collapsed { grid-template-columns: 1fr; }
-  .main { padding-top: 54px; touch-action: pan-y; }
+  .main { padding-top: 54px; touch-action: pan-y; padding-bottom: env(safe-area-inset-bottom); }
 
   /* movimento lateral desativado (sensação de app): só rolagem vertical.
      Exceções: abas roláveis e o grafo (que captura o próprio gesto). */
@@ -792,6 +797,9 @@ select.input { appearance: none; padding-right: 34px;
 }
 @media (max-width: 760px) and (display-mode: standalone) {
   .mobile-bar { padding-top: env(safe-area-inset-top); height: calc(54px + env(safe-area-inset-top)); }
+  /* o conteúdo precisa começar abaixo da barra + área segura (notch), senão o
+     topo do conteúdo fica escondido sob a barra no app instalado */
+  .main { padding-top: calc(54px + env(safe-area-inset-top)); }
 }
 
 /* --------------------------------------------------------------- IMPRESSÃO */
