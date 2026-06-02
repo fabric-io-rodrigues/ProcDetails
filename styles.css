@@ -628,6 +628,31 @@ select.input { appearance: none; padding-right: 34px;
 .treemap-wrap { width: 100%; min-height: 280px; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; background: var(--surface-2); position: relative; display: grid; place-items: center; color: var(--faint); font-size: 13px; }
 .treemap-wrap svg { display: block; width: 100%; }
 
+/* treemap com drill-down (Tribunal → Comarca → Vara) */
+.treemap-wrap.treemap-drill { display: block; place-items: initial; color: inherit; }
+.tm-crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; padding: 9px 12px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 12.5px; min-height: 38px; }
+.tm-crumb { --c: var(--accent); display: inline-flex; align-items: center; font-family: var(--ui); font-weight: 600; font-size: 12.5px; color: var(--c); background: none; border: none; padding: 2px 4px; border-radius: var(--r-sm); cursor: pointer; }
+.tm-crumb:not(.current):hover { background: color-mix(in oklch, var(--c) 14%, transparent); }
+.tm-crumb.current { color: var(--ink); cursor: default; font-weight: 700; }
+.tm-sep { color: var(--faint); font-size: 13px; }
+.tm-level-hint { margin-left: auto; color: var(--faint); font-size: 11px; font-weight: 500; white-space: nowrap; }
+.tm-canvas { position: relative; width: 100%; }
+.tm-canvas svg { display: block; width: 100%; }
+.tm-tip-go { color: var(--accent); font-size: 10.5px; font-weight: 600; }
+
+/* chip de filtro da lista por órgão (vindo do treemap) */
+.org-filter { display: none; align-items: center; flex-wrap: wrap; gap: 8px; margin: 14px 0 4px; scroll-margin-top: 68px; }
+.org-filter-label { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .05em; }
+.org-filter-chip { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; padding: 5px 6px 5px 11px; border-radius: 20px; background: color-mix(in oklch, var(--accent) 12%, var(--surface)); border: 1px solid color-mix(in oklch, var(--accent) 32%, transparent); color: var(--accent); font-size: 12.5px; font-weight: 500; }
+.org-filter-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.org-filter-chip svg { flex: none; }
+.org-filter-chip .ofc-x { flex: none; background: none; border: none; color: inherit; opacity: .7; font-size: 12px; line-height: 1; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; }
+.org-filter-chip .ofc-x:hover { opacity: 1; background: color-mix(in oklch, var(--accent) 22%, transparent); }
+@media (max-width: 760px) {
+  .tm-level-hint { width: 100%; margin-left: 0; }
+  .treemap-wrap.treemap-drill .tm-canvas svg { touch-action: pan-y; }
+}
+
 /* --------------------------------------------------------------- modal de tags */
 .modal-overlay { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 20px; background: color-mix(in oklch, #000 42%, transparent); opacity: 0; transition: opacity .16s ease; }
 .modal-overlay.show { opacity: 1; }
@@ -753,7 +778,10 @@ select.input { appearance: none; padding-right: 34px;
 
   /* alvos de toque maiores */
   .btn, .toggle { height: 42px; }
-  .input { height: 44px; }
+  /* font-size >= 16px evita o auto-zoom do iOS ao focar o campo (reforça o
+     maximum-scale=1 do viewport, que sozinho já desativa o pinch-zoom) */
+  .input { height: 44px; font-size: 16px; }
+  .tag-input-field { font-size: 16px; }
   .chip { height: 32px; }
 
   /* comunicação: título + ações na linha 1, ações quebram se faltar espaço */

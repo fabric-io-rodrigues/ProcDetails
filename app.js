@@ -176,7 +176,14 @@
     total: 0,
     tweaks: Object.assign({ listLayout: 'tabela', accent: '#3D4ED6', density: 'denso', mostrarAssunto: true }, window.TWEAK_DEFAULTS || {}),
     suppressRoute: false,
+    // contexto de navegação: posição de scroll por hash + flag de restauração
+    scrollByHash: new Map(),
+    curHash: null,
+    restoringContext: false,
   };
+
+  // telas que mantêm contexto ao voltar (lista/busca, advogados, agenda, favoritos)
+  const SCROLL_KEEP = new Set(['lista', 'advogado', 'agenda', 'favoritos']);
 
   async function carregarFavoritos() {
     const favs = await Store.listarFavoritos();
@@ -411,7 +418,8 @@
     togFav.addEventListener('click', () => { soFav = !soFav; togFav.classList.toggle('on', soFav); run(); });
 
     run();
-    if (q) setTimeout(() => input.focus(), 30);
+    // não rouba o foco ao voltar (evita o "pulo" para o campo no mobile)
+    if (q && !State.restoringContext) setTimeout(() => input.focus(), 30);
   }
 
   /* ============================== TELA 2: detalhe ====================== */
@@ -438,7 +446,11 @@
 
     /* ---------------- cabeçalho ---------------- */
     const head = el('div', { class: 'detail-head' });
-    head.appendChild(el('a', { class: 'back-link', href: '#/', html: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 3L5 8l5 5" stroke-linecap="round" stroke-linejoin="round"/></svg> Processos' }));
+    // "voltar" preserva o contexto de origem (busca/advogado/agenda/favoritos)
+    const backHref = State.lastListHash
+      || (sub && sub.q ? `#/buscar?q=${encodeURIComponent(sub.q)}` : '#/');
+    const backLabel = (backHref && backHref !== '#/' && !backHref.startsWith('#/processo')) ? 'Voltar' : 'Processos';
+    head.appendChild(el('a', { class: 'back-link', href: backHref, html: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 3L5 8l5 5" stroke-linecap="round" stroke-linejoin="round"/></svg> ' + backLabel }));
 
     const main = el('div', { class: 'dh-main' });
     const title = el('div', { class: 'dh-title' });
@@ -904,13 +916,13 @@
     return card;
   }
 
-  /* Seção: overview da atuação do advogado (treemap tribunal → vara) */
-  function painelAtuacao(nome) {
+  /* Seção: overview da atuação do advogado (treemap tribunal → comarca → vara) */
+  function painelAtuacao(nome, onFocus) {
     const card = el('div', { class: 'adv-related adv-atuacao' });
     const head = el('div', { class: 'adv-related-head' });
     const headLeft = el('div');
-    headLeft.appendChild(el('h3', { text: 'Atuação por tribunal e vara' }));
-    headLeft.appendChild(el('div', { class: 'sub', text: 'Área proporcional ao nº de comunicações — passe o mouse para detalhes' }));
+    headLeft.appendChild(el('h3', { text: 'Atuação por tribunal, comarca e vara' }));
+    headLeft.appendChild(el('div', { class: 'sub', text: 'Área proporcional ao nº de comunicações — toque num bloco para descer um nível (tribunal → comarca → vara); use a trilha para voltar' }));
     head.appendChild(headLeft);
     card.appendChild(head);
 
@@ -920,7 +932,12 @@
 
     if (window.Charts) {
       Charts.loadD3()
-        .then(() => { Charts.renderTreemap(wrap, Services.atuacaoAdvogado(nome)); })
+        .then(() => {
+          // hierarquia rica (orgaos_localizacao); cai no treemap simples se ausente
+          const arvore = Services.atuacaoHierarquia(nome);
+          if (arvore) Charts.renderTreemapDrill(wrap, arvore, { onFocus });
+          else Charts.renderTreemap(wrap, Services.atuacaoAdvogado(nome));
+        })
         .catch(() => { wrap.textContent = 'Não foi possível carregar o treemap.'; });
     } else {
       wrap.textContent = 'charts.js não carregado.';
@@ -971,10 +988,51 @@
       sub.textContent = '';
       const rel = Services.advogadosRelacionados(a);
       if (rel.length || b) results.appendChild(painelRelacionados(a, rel, (v) => acB.setValue(v), navTo, b));
-      results.appendChild(painelAtuacao(a));
-      const rows = b ? Services.buscarDoisAdvogados(a, b) : Services.buscarPorAdvogado(a);
-      results.appendChild(el('p', { class: 'result-meta', html: b ? `<b>${rows.length}</b> processos com <b>${esc(a)}</b> e <b>${esc(b)}</b>` : `<b>${rows.length}</b> processos com <b>${esc(a)}</b>` }));
-      const cont = el('div'); renderListaProcessos(rows, cont); results.appendChild(cont);
+
+      const allRows = b ? Services.buscarDoisAdvogados(a, b) : Services.buscarPorAdvogado(a);
+      const baseMeta = b ? `processos com <b>${esc(a)}</b> e <b>${esc(b)}</b>` : `processos com <b>${esc(a)}</b>`;
+      let orgFilter = null; // { numeros:Set, label:string }
+
+      const filterBar = el('div', { class: 'org-filter' });
+      const metaEl = el('p', { class: 'result-meta' });
+      const cont = el('div');
+
+      function paintList() {
+        const rows = orgFilter ? allRows.filter((r) => orgFilter.numeros.has(r.numero)) : allRows;
+        metaEl.innerHTML = `<b>${rows.length}</b> ${baseMeta}`;
+        filterBar.innerHTML = '';
+        if (orgFilter) {
+          filterBar.style.display = 'flex';
+          filterBar.appendChild(el('span', { class: 'org-filter-label', text: 'Filtrando por' }));
+          const chip = el('span', { class: 'org-filter-chip' });
+          chip.innerHTML = '<svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M10 2.5c-3 0-5.5 2.3-5.5 5.3 0 4 5.5 9.7 5.5 9.7s5.5-5.7 5.5-9.7C15.5 4.8 13 2.5 10 2.5z" stroke-linejoin="round"/><circle cx="10" cy="7.8" r="1.9"/></svg>';
+          chip.appendChild(el('span', { text: orgFilter.label }));
+          const x = el('button', { class: 'ofc-x', type: 'button', text: '✕', title: 'Limpar filtro', 'aria-label': 'Limpar filtro' });
+          x.addEventListener('click', () => { orgFilter = null; paintList(); });
+          chip.appendChild(x);
+          filterBar.appendChild(chip);
+        } else {
+          filterBar.style.display = 'none';
+        }
+        renderListaProcessos(rows, cont);
+      }
+
+      const onFocus = (node, names, viaLeaf) => {
+        if (!node || node.level === 'root' || !node.numeros || !node.numeros.length) {
+          orgFilter = null;
+        } else {
+          orgFilter = { numeros: new Set(node.numeros), label: (names && names.length ? names.join(' › ') : node.name) };
+        }
+        paintList();
+        // toque numa vara (folha) leva o usuário até os resultados; navegar não rola
+        if (viaLeaf) requestAnimationFrame(() => filterBar.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      };
+
+      results.appendChild(painelAtuacao(a, onFocus));
+      results.appendChild(filterBar);
+      results.appendChild(metaEl);
+      results.appendChild(cont);
+      paintList();
     }
 
     function renderDiretorio(sub) {
@@ -996,7 +1054,7 @@
     }
 
     render();
-    if (!params.q) setTimeout(() => acA.el.querySelector('input').focus(), 30);
+    if (!params.q && !State.restoringContext) setTimeout(() => acA.el.querySelector('input').focus(), 30);
   }
 
   /* ============================== autocomplete advogado ================ */
@@ -1269,8 +1327,21 @@
 
   function route() {
     if (State.suppressRoute) return;
+    const main = $('#main');
+
+    // 1) salva a posição da tela ANTERIOR (o hash ainda não rolou o #main)
+    if (main && State.curHash != null) State.scrollByHash.set(State.curHash, main.scrollTop);
+
     const r = parseHash();
-    window.scrollTo && $('#main') && ($('#main').scrollTop = 0);
+    const newHash = location.hash || '#/';
+    const keep = SCROLL_KEEP.has(r.screen);
+    const restore = keep && State.scrollByHash.has(newHash);
+
+    // lembra a última lista de origem (para o "voltar" do detalhe)
+    if (keep) State.lastListHash = newHash;
+    State.restoringContext = restore;
+    State.curHash = newHash;
+
     try {
       if (r.screen === 'detalhe') screenDetalhe(r.numero, r.sub);
       else if (r.screen === 'advogado') screenAdvogado(r.params);
@@ -1284,6 +1355,16 @@
       wrap.appendChild(emptyState('Erro ao carregar a tela', String(e.message || e), '<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16v.5"/>'));
       view().appendChild(wrap);
     }
+
+    // 2) restaura (volta) ou zera (navegação nova) o scroll após o layout
+    if (main) {
+      const y = restore ? (State.scrollByHash.get(newHash) || 0) : 0;
+      requestAnimationFrame(() => {
+        main.scrollTop = y;
+        requestAnimationFrame(() => { main.scrollTop = y; });
+      });
+    }
+    State.restoringContext = false;
   }
 
   /* ============================== tema ================================= */

@@ -561,6 +561,88 @@
     return { tribunais };
   }
 
+  /* --------------------- 5e. Atuação hierárquica (drill-down) ----------
+   * Árvore Tribunal → Comarca/Regional → Vara/Órgão para o advogado.
+   * Une comunicacoes ↔ orgaos_djen (tribunal) ↔ orgaos_localizacao (comarca/
+   * cidade) por id_orgao. Assume o schema corrente da base (o HTML e o banco
+   * são versionados juntos). Os níveis são condicionais: comarca ausente cai
+   * para a cidade e, na falta de ambas, repete o tribunal (nunca fica nulo). */
+
+  // "COMARCA DA CAPITAL" → "Comarca da Capital" (só embeleza o que vier em CAIXA ALTA)
+  const _MINUS = new Set(['da', 'de', 'do', 'das', 'dos', 'e', 'em', 'a', 'o']);
+  function _titulo(s) {
+    s = String(s || '').trim();
+    if (!s) return s;
+    if (s !== s.toUpperCase()) return s;
+    return s.toLowerCase().replace(/\b([a-zà-ú]+)/g, (w, _g, i) =>
+      (i > 0 && _MINUS.has(w)) ? w : w.charAt(0).toUpperCase() + w.slice(1)
+    );
+  }
+
+  function atuacaoHierarquia(nome) {
+    const { info } = _ensureAdv();
+    const rec = info.get(_advKey(nome));
+    if (!rec) return null;
+    const nums = [...rec.numeros];
+    if (!nums.length) return null;
+
+    const ph = nums.map(() => '?').join(',');
+    let rows;
+    try {
+      rows = query(
+        `SELECT c.numero_processo AS np,
+                dj.tribunal       AS tribunal,
+                COALESCE(NULLIF(TRIM(loc.comarca), ''),
+                         NULLIF(TRIM(loc.cidade),  '')) AS comarca,
+                c.nome_orgao      AS vara,
+                COUNT(*)          AS n
+         FROM comunicacoes c
+         LEFT JOIN orgaos_djen        dj  ON dj.id_orgao  = c.id_orgao
+         LEFT JOIN orgaos_localizacao loc ON loc.id_orgao = c.id_orgao
+         WHERE c.numero_processo IN (${ph})
+         GROUP BY c.numero_processo, dj.tribunal, comarca, c.nome_orgao`,
+        nums
+      );
+    } catch (e) { return null; }
+    if (!rows.length) return null;
+
+    // tribunal -> comarca -> vara, acumulando contagem E nº dos processos
+    // (os nº por nó alimentam o filtro da lista ao navegar/tocar no treemap)
+    const trib = new Map();
+    for (const r of rows) {
+      const t = r.tribunal || tribunalCNJ(r.np);
+      // sem comarca nem cidade → usa o próprio tribunal (evita "Sem comarca")
+      const cm = r.comarca ? _titulo(r.comarca) : t;
+      const va = r.vara || '(sem órgão)';
+      let T = trib.get(t);
+      if (!T) { T = { numeros: new Set(), cm: new Map() }; trib.set(t, T); }
+      T.numeros.add(r.np);
+      let C = T.cm.get(cm);
+      if (!C) { C = { numeros: new Set(), va: new Map() }; T.cm.set(cm, C); }
+      C.numeros.add(r.np);
+      let V = C.va.get(va);
+      if (!V) { V = { numeros: new Set(), n: 0 }; C.va.set(va, V); }
+      V.numeros.add(r.np);
+      V.n += r.n;
+    }
+
+    const sumNode = (node) => node.children
+      ? node.children.reduce((a, c) => a + sumNode(c), 0)
+      : (node.value || 0);
+
+    const children = [...trib.entries()].map(([t, T]) => ({
+      name: t, level: 'tribunal', numeros: [...T.numeros],
+      children: [...T.cm.entries()].map(([cm, C]) => ({
+        name: cm, level: 'comarca', numeros: [...C.numeros],
+        children: [...C.va.entries()]
+          .map(([va, V]) => ({ name: va, level: 'vara', value: V.n, numeros: [...V.numeros] }))
+          .sort((a, b) => b.value - a.value),
+      })).sort((a, b) => sumNode(b) - sumNode(a)),
+    })).sort((a, b) => sumNode(b) - sumNode(a));
+
+    return { name: 'Atuação', level: 'root', numeros: nums, children };
+  }
+
   /* ----------------------------------------------------- 6. Busca geral */
   function buscaGeral(q) {
     const expr = ftsExpr(q);
@@ -606,6 +688,7 @@
     grafoAdvogado,
     grafoPontes,
     atuacaoAdvogado,
+    atuacaoHierarquia,
     tribunalCNJ,
     buscaGeral,
   };
