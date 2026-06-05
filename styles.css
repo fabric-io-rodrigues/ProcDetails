@@ -702,8 +702,8 @@ select.input { appearance: none; padding-right: 34px;
 @media (max-width: 760px) {
   /* layout vira coluna única; sidebar sai do fluxo (off-canvas) */
   .app, .app.collapsed { grid-template-columns: 1fr; }
-  /* topo: altura da barra + área segura (notch); base: área segura (home indicator) */
-  .main { padding-top: calc(54px + env(safe-area-inset-top)); touch-action: pan-y; padding-bottom: env(safe-area-inset-bottom); }
+  /* topo: limpa a barra fixa + notch. Base: conteúdo vai até a borda (rola sob o home indicator). */
+  .main { padding-top: calc(54px + env(safe-area-inset-top)); touch-action: pan-y; }
 
   /* movimento lateral desativado (sensação de app): só rolagem vertical.
      Exceções: abas roláveis e o grafo (que captura o próprio gesto). */
@@ -730,8 +730,10 @@ select.input { appearance: none; padding-right: 34px;
     position: fixed; top: 0; bottom: 0; left: 0; width: 280px; max-width: 84vw; z-index: 70;
     transform: translateX(-102%); transition: transform .24s cubic-bezier(.4,0,.2,1);
     box-shadow: var(--shadow-2);
-    padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
+    padding-top: env(safe-area-inset-top);
   }
+  /* a base do menu (controles de tema) respeita o home indicator; o fundo branco vai até embaixo */
+  .side-bottom { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
   .app.drawer-open .sidebar { transform: none; }
   .drawer-scrim { display: block; position: fixed; inset: 0; z-index: 65; background: color-mix(in oklch, #000 45%, transparent); opacity: 0; pointer-events: none; transition: opacity .24s; }
   .app.drawer-open .drawer-scrim { opacity: 1; pointer-events: auto; }

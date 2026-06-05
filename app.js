@@ -1359,6 +1359,10 @@
     if (State.suppressRoute) return;
     const main = $('#main');
 
+    // limpa qualquer transform/arraste preso (gesto de voltar interrompido)
+    const _v = $('#view'); if (_v) _v.style.transform = '';
+    const _app = $('#app'); if (_app) _app.classList.remove('view-dragging', 'view-snap', 'drawer-dragging');
+
     // 1) salva a posição da tela ANTERIOR (o hash ainda não rolou o #main)
     if (main && State.curHash != null) State.scrollByHash.set(State.curHash, main.scrollTop);
 
@@ -1562,7 +1566,12 @@
     }
 
     function onEnd() {
-      if (!active) { decided = false; mode = null; return; }
+      if (!active) {
+        // segurança: nunca deixa um transform órfão no #view (some o "espaço cinza")
+        const v0 = viewEl();
+        if (v0 && v0.style.transform) { app.classList.remove('view-dragging'); app.classList.add('view-snap'); v0.style.transform = ''; setTimeout(() => app.classList.remove('view-snap'), 240); }
+        decided = false; mode = null; return;
+      }
       active = false;
       if (!decided) { mode = null; return; }
       const fast = Math.abs(vx) > 0.5;
