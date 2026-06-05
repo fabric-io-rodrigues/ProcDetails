@@ -63,6 +63,7 @@
 /* Garante que [hidden] funcione mesmo em elementos com display explícito no CSS */
 [hidden] { display: none !important; }
 html, body { height: 100%; overflow-x: hidden; overscroll-behavior: none; }
+html { background: var(--bg); }
 body {
   margin: 0;
   max-width: 100vw;
@@ -145,7 +146,16 @@ button { font-family: inherit; cursor: pointer; }
 .login-hint code { font-family: var(--mono); background: var(--surface-3); padding: 1px 6px; border-radius: 4px; color: var(--ink-2); }
 
 /* --------------------------------------------------------------- layout */
-.app { display: grid; grid-template-columns: var(--side-w) 1fr; height: 100vh; height: 100dvh; }
+/* App-shell: position:fixed + inset:0 preenche EXATAMENTE a viewport visível.
+   Mais confiável que 100vh/100dvh em PWA standalone (sem faixa vazia embaixo). */
+.app {
+  display: grid;
+  grid-template-columns: var(--side-w) 1fr;
+  grid-template-rows: 100%;
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+}
 .app.collapsed { grid-template-columns: var(--side-w-collapsed) 1fr; }
 
 /* --------------------------------------------------------------- sidebar */
@@ -231,7 +241,7 @@ button { font-family: inherit; cursor: pointer; }
 .app.collapsed .theme-switch { flex-direction: column; }
 
 /* --------------------------------------------------------------- main */
-.main { overflow-y: auto; overflow-x: hidden; min-width: 0; overscroll-behavior: contain; }
+.main { overflow-y: auto; overflow-x: hidden; min-width: 0; min-height: 0; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; background: var(--bg); }
 .view { min-height: 100%; }
 
 /* topbar comum às telas */
@@ -725,6 +735,15 @@ select.input { appearance: none; padding-right: 34px;
   .app.drawer-open .sidebar { transform: none; }
   .drawer-scrim { display: block; position: fixed; inset: 0; z-index: 65; background: color-mix(in oklch, #000 45%, transparent); opacity: 0; pointer-events: none; transition: opacity .24s; }
   .app.drawer-open .drawer-scrim { opacity: 1; pointer-events: auto; }
+
+  /* durante o arraste com o dedo: sem transição (segue o toque em tempo real) */
+  .app.drawer-dragging .sidebar,
+  .app.drawer-dragging .drawer-scrim { transition: none !important; }
+  .app.drawer-dragging .drawer-scrim { pointer-events: auto; }
+  /* gesto "voltar" arrastando da borda (telas de detalhe) */
+  #view { will-change: auto; }
+  .app.view-dragging #view { transition: none; }
+  .app.view-snap #view { transition: transform .22s cubic-bezier(.4,0,.2,1); }
   /* dentro do drawer tudo aparece (não colapsado) */
   .side-collapse { display: none; }
   .brand-text, .nav-item span:not(.nav-count), .db-status span:last-child { display: flex; }

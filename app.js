@@ -1494,6 +1494,101 @@
       localStorage.setItem('tema', next); Store.setPref('tema', next); aplicarTema(next);
       toast('Tema: ' + ({ light: 'claro', dark: 'escuro', system: 'sistema' }[next]));
     });
+
+    initEdgeSwipe(app, openDrawer, closeDrawer);
+  }
+
+  /* -------- gesto de borda (estilo X): abrir menu / voltar arrastando ------ */
+  function initEdgeSwipe(app, openDrawer, closeDrawer) {
+    const mq = window.matchMedia('(max-width: 760px)');
+    const sidebar = $('#sidebar');
+    const scrim = $('#drawer-scrim');
+    const viewEl = () => $('#view');
+
+    const EDGE = 28;   // zona da borda esquerda que ativa "abrir/voltar"
+    const SLOP = 8;    // limiar para decidir horizontal x vertical
+    let active = false, decided = false, mode = null; // 'open' | 'close' | 'back'
+    let x0 = 0, y0 = 0, width = 280, lastX = 0, lastT = 0, vx = 0;
+
+    const isDetail = () => /^#\/processo\//.test(location.hash);
+    const isOpen = () => app.classList.contains('drawer-open');
+    const blocked = (t) => !!(t && t.closest && t.closest('.grafo-wrap, .tabs, .com-full, .treemap-wrap, input, textarea, select, [data-no-swipe]'));
+    const txOf = (elm) => parseFloat((elm.style.transform.match(/-?[\d.]+/) || [0])[0]) || 0;
+
+    function onStart(e) {
+      if (!mq.matches || (e.touches && e.touches.length > 1)) return;
+      const t = e.touches ? e.touches[0] : e;
+      active = false; decided = false; mode = null;
+      if (isOpen()) {
+        mode = 'close';
+      } else {
+        if (t.clientX > EDGE || blocked(e.target)) return;
+        mode = isDetail() ? 'back' : 'open';
+      }
+      active = true;
+      x0 = lastX = t.clientX; y0 = t.clientY; lastT = performance.now(); vx = 0;
+      width = sidebar ? sidebar.getBoundingClientRect().width : Math.min(280, window.innerWidth * 0.84);
+    }
+
+    function setDrawerX(px) {
+      sidebar.style.transform = `translateX(${px}px)`;
+      scrim.style.opacity = String(Math.max(0, Math.min(1, (px + width) / width)));
+    }
+
+    function onMove(e) {
+      if (!active) return;
+      const t = e.touches ? e.touches[0] : e;
+      const dx = t.clientX - x0, dy = t.clientY - y0;
+      const now = performance.now();
+      if (now > lastT) { vx = (t.clientX - lastX) / (now - lastT); lastX = t.clientX; lastT = now; }
+      if (!decided) {
+        if (Math.abs(dx) < SLOP && Math.abs(dy) < SLOP) return;
+        if (Math.abs(dy) > Math.abs(dx)) { active = false; return; }      // vertical → rola normal
+        if ((mode === 'open' || mode === 'back') && dx <= 0) { active = false; return; }
+        if (mode === 'close' && dx >= 0) { active = false; return; }
+        decided = true;
+        app.classList.add(mode === 'back' ? 'view-dragging' : 'drawer-dragging');
+      }
+      if (e.cancelable) e.preventDefault();  // trava rolagem durante o arraste horizontal
+      if (mode === 'open') setDrawerX(Math.min(0, -width + dx));
+      else if (mode === 'close') setDrawerX(Math.max(-width, dx));
+      else { const v = viewEl(); if (v) v.style.transform = `translateX(${Math.max(0, Math.min(width, dx))}px)`; }
+    }
+
+    function commitDrawer(openIt) {
+      app.classList.remove('drawer-dragging');
+      sidebar.style.transform = ''; scrim.style.opacity = '';
+      openIt ? openDrawer() : closeDrawer();
+    }
+
+    function onEnd() {
+      if (!active) { decided = false; mode = null; return; }
+      active = false;
+      if (!decided) { mode = null; return; }
+      const fast = Math.abs(vx) > 0.5;
+      if (mode === 'open') {
+        commitDrawer(txOf(sidebar) > -width * 0.55 || (fast && vx > 0));
+      } else if (mode === 'close') {
+        const closed = txOf(sidebar) < -width * 0.45 || (fast && vx < 0);
+        commitDrawer(!closed);
+      } else if (mode === 'back') {
+        const v = viewEl();
+        const dx = v ? txOf(v) : 0;
+        const commitBack = dx > width * 0.4 || (fast && vx > 0.5 && dx > 40);
+        app.classList.remove('view-dragging');
+        if (commitBack) { if (v) v.style.transform = ''; voltarNav(); }
+        else if (v) { app.classList.add('view-snap'); v.style.transform = ''; setTimeout(() => app.classList.remove('view-snap'), 240); }
+      }
+      decided = false; mode = null;
+    }
+
+    function voltarNav() { if (window.history.length > 1) history.back(); else go('#/'); }
+
+    const opt = { passive: false };
+    document.addEventListener('touchstart', onStart, opt);
+    document.addEventListener('touchmove', onMove, opt);
+    document.addEventListener('touchend', onEnd);
+    document.addEventListener('touchcancel', onEnd);
   }
 
   /* =============================== boot ================================ */
