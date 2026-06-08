@@ -1521,7 +1521,9 @@
       toast('Tema: ' + ({ light: 'claro', dark: 'escuro', system: 'sistema' }[next]));
     });
 
-    initEdgeSwipe(app, openDrawer, closeDrawer);
+    // Gesto de borda removido: a navegação agora é pela barra inferior (estilo app)
+    // e o "voltar" pela seta do cabeçalho. (initEdgeSwipe mantido no código, sem uso.)
+    // initEdgeSwipe(app, openDrawer, closeDrawer);
   }
 
   /* -------- gesto de borda (estilo X): abrir menu / voltar arrastando ------ */
