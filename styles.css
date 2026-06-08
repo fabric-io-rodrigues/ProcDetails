@@ -701,22 +701,24 @@ select.input { appearance: none; padding-right: 34px;
   .detail-rail .rail-card { flex: 1; min-width: 250px; }
 }
 @media (max-width: 760px) {
-  /* ===== Shell mobile estilo app (mesmo mecanismo do test.html que funciona) =====
-     container relative em coluna flex com min-height da viewport; a barra inferior
-     é o último flex-item (o .main com flex:1 a empurra até a base). Sem height fixo
-     nem overflow:hidden no body — evita o 100dvh "curto" que deixava faixa morta. */
+  /* ===== Shell mobile estilo app (mecanismo do test.html que funciona) =====
+     .app: container relative, min-height da viewport, OVERFLOW HIDDEN (não rola
+     como um todo). Topo = flex-item fixo. Meio (.main) = flex:1 rolando POR DENTRO.
+     Barra de baixo = position:absolute bottom:0 (presa à base, fora do fluxo). */
   html, body { height: auto; min-height: 100%; overflow-x: hidden; }
   .app, .app.collapsed {
     position: relative; inset: auto;
     display: flex; flex-direction: column;
     grid-template-columns: none;
     min-height: 100vh; min-height: 100dvh; height: auto;
+    overflow: hidden;
   }
   .main {
     flex: 1 1 auto; min-height: 0;
     overflow-y: auto; overflow-x: hidden;
     -webkit-overflow-scrolling: touch; touch-action: pan-y;
-    padding: 0;
+    /* espaço para o conteúdo não passar por baixo da barra inferior (absoluta) */
+    padding: 0 0 calc(60px + max(env(safe-area-inset-bottom), 10px)) 0;
   }
 
   /* navegação primária = barra inferior (estilo app). Hamburger e drawer saem de cena. */
@@ -736,10 +738,10 @@ select.input { appearance: none; padding-right: 34px;
   .mb-brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 15px; flex: 1; }
   .mb-brand .brand-glyph { width: 28px; height: 28px; border-radius: 7px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-size: 17px; }
 
-  /* barra inferior — flex-item na base; o fundo vai até a borda e o padding
-     do home indicator só levanta os ícones (sem faixa morta). */
+  /* barra inferior — presa à base do .app (absolute), fora do fluxo de rolagem */
   .tabbar {
-    display: grid; grid-template-columns: repeat(4, 1fr); flex: none;
+    position: absolute; bottom: 0; left: 0; right: 0; z-index: 5;
+    display: grid; grid-template-columns: repeat(4, 1fr);
     background: var(--surface);
     border-top: 1px solid var(--line);
     padding-bottom: max(env(safe-area-inset-bottom), 10px);
