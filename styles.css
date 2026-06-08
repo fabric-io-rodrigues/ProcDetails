@@ -692,6 +692,7 @@ select.input { appearance: none; padding-right: 34px;
 /* --------------------------------------------------------------- mobile chrome */
 .mobile-bar { display: none; }
 .drawer-scrim { display: none; }
+.tabbar { display: none; }
 
 /* --------------------------------------------------------------- responsivo */
 @media (max-width: 1080px) {
@@ -702,8 +703,42 @@ select.input { appearance: none; padding-right: 34px;
 @media (max-width: 760px) {
   /* layout vira coluna única; sidebar sai do fluxo (off-canvas) */
   .app, .app.collapsed { grid-template-columns: 1fr; }
-  /* topo: limpa a barra fixa + notch. Base: conteúdo vai até a borda (rola sob o home indicator). */
-  .main { padding-top: calc(54px + env(safe-area-inset-top)); touch-action: pan-y; }
+  /* topo: limpa a barra fixa + notch. Base: espaço para a barra inferior (tabbar) + home indicator. */
+  .main { padding-top: calc(54px + env(safe-area-inset-top)); padding-bottom: calc(58px + env(safe-area-inset-bottom)); touch-action: pan-y; }
+
+  /* navegação primária = barra inferior (estilo app). Hamburger e drawer saem de cena. */
+  #btn-drawer { display: none; }
+  .sidebar { display: none !important; }
+  .drawer-scrim { display: none !important; }
+
+  .tabbar {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+    background: color-mix(in oklch, var(--surface) 92%, transparent);
+    backdrop-filter: saturate(1.4) blur(12px);
+    border-top: 1px solid var(--line);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .tab-item {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    height: 56px; color: var(--faint); font-size: 10.5px; font-weight: 600; letter-spacing: .01em;
+    position: relative; -webkit-tap-highlight-color: transparent; transition: color .14s;
+  }
+  .tab-item .ico { width: 23px; height: 23px; transition: transform .14s; }
+  .tab-item span:last-child { line-height: 1; }
+  .tab-item:active .ico { transform: scale(.88); }
+  .tab-item.active { color: var(--accent); }
+  .tab-item.active::before {
+    content: ''; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+    width: 26px; height: 3px; border-radius: 0 0 3px 3px; background: var(--accent);
+  }
+  .tab-ico-wrap { position: relative; display: grid; place-items: center; }
+  .tab-badge {
+    position: absolute; top: -5px; right: -9px; min-width: 16px; height: 16px; padding: 0 4px;
+    border-radius: 10px; background: var(--accent); color: var(--accent-ink);
+    font-family: var(--mono); font-size: 10px; font-weight: 700; line-height: 16px; text-align: center;
+    border: 2px solid var(--surface);
+  }
 
   /* movimento lateral desativado (sensação de app): só rolagem vertical.
      Exceções: abas roláveis e o grafo (que captura o próprio gesto). */
@@ -746,6 +781,17 @@ select.input { appearance: none; padding-right: 34px;
   #view { will-change: auto; }
   .app.view-dragging #view { transition: none; }
   .app.view-snap #view { transition: transform .22s cubic-bezier(.4,0,.2,1); }
+
+  /* "foto" do detalhe durante a transição de voltar (revela a lista por baixo) */
+  .nav-snap {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    z-index: 55;                 /* acima do conteúdo, abaixo da barra fixa (60) */
+    overflow: hidden;
+    background: var(--bg);
+    box-shadow: -8px 0 24px -8px rgba(0,0,0,.28);
+    will-change: transform;
+  }
+  .nav-snap > * { position: absolute; left: 0; right: 0; top: 0; will-change: transform; }
   /* dentro do drawer tudo aparece (não colapsado) */
   .side-collapse { display: none; }
   .brand-text, .nav-item span:not(.nav-count), .db-status span:last-child { display: flex; }

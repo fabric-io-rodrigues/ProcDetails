@@ -204,6 +204,8 @@
     scrollByHash: new Map(),
     curHash: null,
     restoringContext: false,
+    lastListHash: null,
+    backAnim: null,
   };
 
   // telas que mantêm contexto ao voltar (lista/busca, advogados, agenda, favoritos)
@@ -215,6 +217,8 @@
     State.favData = new Map(favs.map((f) => [f.numero, f]));
     const c = $('#fav-count');
     if (favs.length) { c.hidden = false; c.textContent = favs.length; } else c.hidden = true;
+    const tc = $('#tab-fav-count');
+    if (tc) { if (favs.length) { tc.hidden = false; tc.textContent = favs.length > 99 ? '99+' : favs.length; } else tc.hidden = true; }
     renderFavRail(favs);
   }
 
@@ -1334,7 +1338,7 @@
     } catch (e) { _advDatalistDone = false; }
   }
   function go(hash) { location.hash = hash; }
-  function setActiveNav(route) { $$('.nav-item').forEach((a) => a.classList.toggle('active', a.dataset.route === route)); }
+  function setActiveNav(route) { $$('.nav-item, .tab-item').forEach((a) => a.classList.toggle('active', a.dataset.route === route)); }
 
   function parseHash() {
     let h = location.hash.replace(/^#/, '');
@@ -1398,6 +1402,24 @@
         requestAnimationFrame(() => { main.scrollTop = y; });
       });
     }
+
+    // 3) animação "voltar" estilo iOS: a foto do detalhe sai à direita e
+    //    a lista (já renderizada por baixo) entra com leve parallax.
+    if (State.backAnim) {
+      const snap = State.backAnim; State.backAnim = null;
+      const v = $('#view');
+      if (v) { v.style.transition = 'none'; v.style.transform = 'translateX(-16%)'; v.style.willChange = 'transform'; }
+      requestAnimationFrame(() => {
+        const ease = 'transform .28s cubic-bezier(.22,.61,.36,1)';
+        if (v) { v.style.transition = ease; v.style.transform = ''; }
+        snap.style.transition = ease;
+        snap.style.transform = 'translateX(100%)';
+        const done = () => { snap.remove(); if (v) { v.style.transition = ''; v.style.willChange = ''; } };
+        snap.addEventListener('transitionend', done, { once: true });
+        setTimeout(done, 420);
+      });
+    }
+
     State.restoringContext = false;
   }
 
@@ -1519,19 +1541,28 @@
     const blocked = (t) => !!(t && t.closest && t.closest('.grafo-wrap, .tabs, .com-full, .treemap-wrap, input, textarea, select, [data-no-swipe]'));
     const txOf = (elm) => parseFloat((elm.style.transform.match(/-?[\d.]+/) || [0])[0]) || 0;
 
+    // navegação primária é a barra inferior: o drawer não é usado no mobile.
+    // Mantemos só o gesto de "voltar" (da borda) nas telas de detalhe.
+    const NAV_BOTTOM = true;
+
     function onStart(e) {
       if (!mq.matches || (e.touches && e.touches.length > 1)) return;
       const t = e.touches ? e.touches[0] : e;
       active = false; decided = false; mode = null;
-      if (isOpen()) {
+      if (!NAV_BOTTOM && isOpen()) {
         mode = 'close';
       } else {
         if (t.clientX > EDGE || blocked(e.target)) return;
-        mode = isDetail() ? 'back' : 'open';
+        if (isDetail()) mode = 'back';
+        else if (!NAV_BOTTOM) mode = 'open';
+        else return;                       // lista: sem drawer, nada a fazer
       }
       active = true;
       x0 = lastX = t.clientX; y0 = t.clientY; lastT = performance.now(); vx = 0;
-      width = sidebar ? sidebar.getBoundingClientRect().width : Math.min(280, window.innerWidth * 0.84);
+      const sbW = sidebar ? sidebar.getBoundingClientRect().width : 0;
+      // no modo "voltar" o referencial é a viewport; no drawer, a largura do menu
+      width = (mode === 'back') ? window.innerWidth
+            : (sbW > 0 ? sbW : Math.min(280, window.innerWidth * 0.84));
     }
 
     function setDrawerX(px) {
@@ -1585,13 +1616,41 @@
         const dx = v ? txOf(v) : 0;
         const commitBack = dx > width * 0.4 || (fast && vx > 0.5 && dx > 40);
         app.classList.remove('view-dragging');
-        if (commitBack) { if (v) v.style.transform = ''; voltarNav(); }
+        if (commitBack) { beginBackAnim(v, dx); }
         else if (v) { app.classList.add('view-snap'); v.style.transform = ''; setTimeout(() => app.classList.remove('view-snap'), 240); }
       }
       decided = false; mode = null;
     }
 
-    function voltarNav() { if (window.history.length > 1) history.back(); else go('#/'); }
+    // tira uma "foto" do detalhe atual, deixa a lista renderizar por baixo
+    // (escondendo o rebuild) e navega. A animação de saída roda no route().
+    function beginBackAnim(v, startX) {
+      if (!v || !mq.matches) { if (v) v.style.transform = ''; voltarNav(); return; }
+      const main = $('#main');
+      const bar = $('#mobile-bar');
+      const top = bar ? Math.max(0, Math.round(bar.getBoundingClientRect().bottom)) : 0;
+      const snap = document.createElement('div');
+      snap.className = 'nav-snap';
+      snap.style.top = top + 'px';
+      snap.style.transform = `translateX(${startX || 0}px)`;
+      const inner = v.cloneNode(true);
+      inner.style.transform = `translateY(${-(main ? main.scrollTop : 0)}px)`;
+      snap.appendChild(inner);
+      document.body.appendChild(snap);
+      State.backAnim = snap;
+      v.style.transform = '';
+      voltarNav();
+      // segurança: se o route não consumir (hash não mudou), remove a foto
+      setTimeout(() => {
+        if (State.backAnim === snap) { State.backAnim = null; snap.remove(); }
+      }, 500);
+    }
+
+    function voltarNav() {
+      if (State.lastListHash && State.lastListHash !== location.hash) { go(State.lastListHash); }
+      else if (window.history.length > 1) history.back();
+      else go('#/');
+    }
 
     const opt = { passive: false };
     document.addEventListener('touchstart', onStart, opt);

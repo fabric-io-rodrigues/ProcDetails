@@ -26,7 +26,7 @@
 <!-- Tweaks: bloco persistido pelo host (JSON válido) -->
 <script>
   window.TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-    "listLayout": "tabela",
+    "listLayout": "compacta",
     "accent": "#0E7C66",
     "density": "denso",
     "mostrarAssunto": true
@@ -169,6 +169,29 @@
     <main class="main" id="main">
       <div id="view" class="view"><!-- renderizado por app.js --></div>
     </main>
+
+    <!-- Barra de navegação inferior (somente mobile — estilo app) -->
+    <nav class="tabbar" id="tabbar" aria-label="Navegação principal">
+      <a class="tab-item" data-route="lista" href="#/">
+        <svg viewBox="0 0 20 20" class="ico"><path d="M3 4h14M3 10h14M3 16h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <span>Processos</span>
+      </a>
+      <a class="tab-item" data-route="agenda" href="#/agenda">
+        <svg viewBox="0 0 20 20" class="ico"><rect x="3" y="4" width="14" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3 8h14M7 2v3M13 2v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <span>Agenda</span>
+      </a>
+      <a class="tab-item" data-route="advogado" href="#/advogado">
+        <svg viewBox="0 0 20 20" class="ico"><circle cx="10" cy="6.5" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4 17c0-3.3 2.7-5 6-5s6 1.7 6 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <span>Advogados</span>
+      </a>
+      <a class="tab-item" data-route="favoritos" href="#/favoritos">
+        <span class="tab-ico-wrap">
+          <svg viewBox="0 0 20 20" class="ico"><path d="M10 2.6l2.2 4.5 5 .7-3.6 3.5.9 5-4.5-2.4L5.5 16.8l.9-5L2.8 8.3l5-.7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          <span class="tab-badge" id="tab-fav-count" hidden>0</span>
+        </span>
+        <span>Favoritos</span>
+      </a>
+    </nav>
   </div>
 
   <!-- ===================== TWEAKS ===================== -->
