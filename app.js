@@ -594,6 +594,8 @@
     const facts = el('div', { class: 'rail-facts' });
     const addFact = (k, val, mono) => { if (!val) return; const f = el('div', { class: 'rail-fact' }); f.appendChild(el('span', { class: 'k', text: k })); f.appendChild(el('span', { class: 'v' + (mono ? ' mono' : ''), text: val })); facts.appendChild(f); };
     addFact('Órgão', p.orgao);
+    addFact('Comarca', p.comarca);
+    addFact('Vara', p.vara && p.vara !== p.orgao ? p.vara : null);
     addFact('Assunto', p.assunto);
     addFact('Rito', p.desc_rito);
     addFact('Nº MP', p.numero_mp, true);
