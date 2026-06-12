@@ -187,6 +187,7 @@
     const add = (cls, label, n) => { if (n > 0) wrap.appendChild(el('span', { class: 'badge ' + cls, html: `${label}<span class="n">${n}</span>` })); };
     add('djen', 'DJEN', p.n_comunicacoes);
     add('tjrj', 'TJRJ', p.n_movimentos_tj);
+    add('pje', 'PJe', p.n_movimentos_pje);
     add('mprj', 'MPRJ', p.n_movimentos_mp);
     add('evento', 'Evento', p.n_eventos_ia);
     return wrap;
@@ -521,7 +522,7 @@
     grid.append(mainCol, rail);
     v.appendChild(grid);
 
-    const totalMov = (p.n_movimentos_tj || 0) + (p.n_movimentos_mp || 0);
+    const totalMov = (p.n_movimentos_tj || 0) + (p.n_movimentos_pje || 0) + (p.n_movimentos_mp || 0);
     const tabsDef = [
       { id: 'tudo',         label: 'Tudo',         n: totalMov + (p.n_comunicacoes || 0) + (p.n_eventos_ia || 0), always: true },
       { id: 'movimentos',   label: 'Movimentos',   n: totalMov },
@@ -647,6 +648,7 @@
   const TL_ICON = {
     tjrj: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 8l5-5 3 3-5 5zM6 6l3 3M11 11l5 5M8.5 8.5l3 3M3 17h8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     mprj: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 2v16M5 6h10M5 6l-2.5 5h5zM15 6l2.5 5h-5z" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    pje: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="4" width="15" height="10" rx="1.5"/><path d="M7 17h6M10 14v3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     djen: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="14" height="11" rx="1.5"/><path d="M3.5 6l6.5 5 6.5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     evento: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="14" height="13" rx="2"/><path d="M3 8h14M7 2v3M13 2v3" stroke-linecap="round"/></svg>',
     pdf: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 2h6l4 4v12H6z" stroke-linejoin="round"/><path d="M12 2v4h4" stroke-linejoin="round"/><path d="M8 12h4M8 15h3" stroke-linecap="round"/></svg>',
@@ -665,7 +667,8 @@
     return item;
   }
   function movCardBody(m) {
-    const src = (m.fonte || '').toUpperCase().includes('MP') ? 'mprj' : 'tjrj';
+    const f = (m.fonte || '').toUpperCase();
+    const src = f.includes('PJE') ? 'pje' : f.includes('MP') ? 'mprj' : 'tjrj';
     const card = el('div', { class: 'tl-card' });
     const lbl = el('div', { class: 'tl-src ' + src, html: TL_ICON[src] });
     lbl.appendChild(el('span', { text: 'Movimento · ' + (m.fonte || src.toUpperCase()) }));

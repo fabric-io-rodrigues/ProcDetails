@@ -168,7 +168,7 @@
   /* ----------------------------------------------------------- 1. Lista */
   function listarProcessos({ busca = '', classe = '' } = {}) {
     const cols = `p.numero, p.cnj, p.classe, p.orgao, p.assunto, p.advogados, p.partes,
-                  p.n_comunicacoes, p.n_movimentos_tj, p.n_movimentos_mp, p.n_eventos_ia,
+                  p.n_comunicacoes, p.n_movimentos_tj, p.n_movimentos_mp, p.n_movimentos_pje, p.n_eventos_ia,
                   p.data_ultima_com, p.data_ultimo_mov`;
     const expr = ftsExpr(busca);
     const where = [];
@@ -300,7 +300,7 @@
   function buscarPorAdvogado(termo) {
     return query(
       `SELECT numero, cnj, classe, orgao, assunto, advogados, partes,
-              n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_eventos_ia,
+              n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje, n_eventos_ia,
               data_ultima_com, data_ultimo_mov
        FROM processos
        WHERE advogados LIKE '%' || ? || '%'
@@ -312,7 +312,7 @@
   function buscarDoisAdvogados(termoA, termoB) {
     return query(
       `SELECT numero, cnj, classe, orgao, assunto, advogados, partes,
-              n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_eventos_ia,
+              n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje, n_eventos_ia,
               data_ultima_com, data_ultimo_mov
        FROM processos
        WHERE advogados LIKE '%' || ? || '%'
@@ -648,7 +648,7 @@
     const expr = ftsExpr(q);
     if (!expr) return [];
     const cols = `p.numero, p.cnj, p.classe, p.orgao, p.assunto, p.advogados, p.partes,
-                  p.n_comunicacoes, p.n_movimentos_tj, p.n_movimentos_mp, p.n_eventos_ia,
+                  p.n_comunicacoes, p.n_movimentos_tj, p.n_movimentos_mp, p.n_movimentos_pje, p.n_eventos_ia,
                   p.data_ultima_com, p.data_ultimo_mov`;
     return query(
       `WITH hits AS (

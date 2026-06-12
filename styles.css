@@ -11,6 +11,7 @@
 
   --djen:   #2563EB;  /* azul   */
   --tjrj:   #15803D;  /* verde  */
+  --pje:    #0D9488;  /* teal   */
   --mprj:   #C2620A;  /* laranja*/
   --evento: #7C3AED;  /* roxo   */
 
@@ -308,6 +309,7 @@ select.input { appearance: none; padding-right: 34px;
 .badge .n { opacity: .72; font-weight: 500; }
 .badge.djen   { color: var(--djen);   background: color-mix(in oklch, var(--djen) 13%, var(--surface));   border-color: color-mix(in oklch, var(--djen) 26%, transparent); }
 .badge.tjrj   { color: var(--tjrj);   background: color-mix(in oklch, var(--tjrj) 14%, var(--surface));   border-color: color-mix(in oklch, var(--tjrj) 28%, transparent); }
+.badge.pje    { color: var(--pje);    background: color-mix(in oklch, var(--pje) 14%, var(--surface));    border-color: color-mix(in oklch, var(--pje) 28%, transparent); }
 .badge.mprj   { color: var(--mprj);   background: color-mix(in oklch, var(--mprj) 14%, var(--surface));   border-color: color-mix(in oklch, var(--mprj) 28%, transparent); }
 .badge.evento { color: var(--evento); background: color-mix(in oklch, var(--evento) 14%, var(--surface)); border-color: color-mix(in oklch, var(--evento) 28%, transparent); }
 
@@ -419,6 +421,7 @@ select.input { appearance: none; padding-right: 34px;
 .tl-dot { position: absolute; left: 0; top: 3px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--surface); z-index: 1; }
 .tl-dot.tjrj { background: var(--tjrj); } .tl-dot.mprj { background: var(--mprj); }
 .tl-dot.djen { background: var(--djen); } .tl-dot.evento { background: var(--evento); }
+.tl-dot.pje { background: var(--pje); }
 .tl-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: 11px 14px; transition: border-color .12s; }
 .tl-card:hover { border-color: color-mix(in oklch, var(--accent) 30%, var(--line)); }
 .tl-card.tl-future { border-color: color-mix(in oklch, var(--evento) 45%, var(--line)); background: color-mix(in oklch, var(--evento) 6%, var(--surface)); }
@@ -426,6 +429,7 @@ select.input { appearance: none; padding-right: 34px;
 .tl-src svg { width: 13px; height: 13px; flex: none; }
 .tl-src.tjrj { color: var(--tjrj); } .tl-src.mprj { color: var(--mprj); }
 .tl-src.djen { color: var(--djen); } .tl-src.evento { color: var(--evento); }
+.tl-src.pje { color: var(--pje); }
 .tl-desc { margin-top: 3px; color: var(--ink); }
 .tl-detail { margin-top: 7px; padding-top: 7px; border-top: 1px dashed var(--line); font-size: 12.5px; color: var(--muted); white-space: pre-wrap; }
 
