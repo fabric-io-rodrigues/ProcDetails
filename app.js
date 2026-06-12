@@ -210,7 +210,7 @@
   };
 
   // telas que mantêm contexto ao voltar (lista/busca, advogados, agenda, favoritos)
-  const SCROLL_KEEP = new Set(['lista', 'advogado', 'agenda', 'favoritos']);
+  const SCROLL_KEEP = new Set(['lista', 'advogado', 'partes', 'agenda', 'favoritos']);
 
   async function carregarFavoritos() {
     const favs = await Store.listarFavoritos();
@@ -620,7 +620,11 @@
         if (!grupos[g].length) return;
         const gr = el('div', { class: 'polo-group' });
         gr.appendChild(el('div', { class: 'polo-label ' + g, text: POLO_LABEL[g] }));
-        grupos[g].forEach((x) => gr.appendChild(el('div', { class: 'polo-parte', text: x.nome })));
+        grupos[g].forEach((x) => {
+          const pe = el('div', { class: 'polo-parte polo-parte-link', text: x.nome });
+          pe.addEventListener('click', () => go('#/partes?q=' + encodeURIComponent(x.nome)));
+          gr.appendChild(pe);
+        });
         card.appendChild(gr);
       });
       rail.appendChild(card);
@@ -1022,6 +1026,7 @@
       sub.textContent = '';
       const rel = Services.advogadosRelacionados(a);
       if (rel.length || b) results.appendChild(painelRelacionados(a, rel, (v) => acB.setValue(v), navTo, b));
+      results.appendChild(painelPartesAdv(a, b));
 
       const allRows = b ? Services.buscarDoisAdvogados(a, b) : Services.buscarPorAdvogado(a);
       const baseMeta = b ? `processos com <b>${esc(a)}</b> e <b>${esc(b)}</b>` : `processos com <b>${esc(a)}</b>`;
@@ -1091,8 +1096,232 @@
     if (!params.q && !State.restoringContext) setTimeout(() => acA.el.querySelector('input').focus(), 30);
   }
 
+  /* ============================== TELA: Partes (pessoas) =============== */
+  const REL_LABEL = { oposto: 'Polo oposto', mesmo: 'Mesmo polo', desconhecido: 'Polo indefinido', advogado: 'Advogado', central: 'Selecionado' };
+  const POLO_TAG  = { ativo: 'Polo ativo', passivo: 'Polo passivo', outro: '' };
+  function relCor(rel) {
+    const cv = (n, fb) => getComputedStyle(document.documentElement).getPropertyValue(n).trim() || fb;
+    switch (rel) {
+      case 'oposto':      return '#D9456E';
+      case 'mesmo':       return cv('--djen', '#2563EB');
+      case 'advogado':    return cv('--tjrj', '#15803D');
+      case 'central':     return cv('--accent', '#0E7C66');
+      default:            return cv('--muted', '#6B7585');
+    }
+  }
+
+  // box exibido na tela de Advogados (pessoas do advogado, ou em comum entre dois)
+  function painelPartesAdv(a, b) {
+    const card = el('div', { class: 'adv-related' });
+    const head = el('div', { class: 'adv-related-head' });
+    const hl = el('div');
+    if (b) {
+      hl.appendChild(el('h3', { text: 'Partes em comum' }));
+      hl.appendChild(el('div', { class: 'sub', text: `Pessoas presentes nos processos de ${a} e de ${b}` }));
+    } else {
+      hl.appendChild(el('h3', { text: 'Pessoas nos processos' }));
+      hl.appendChild(el('div', { class: 'sub', text: `Partes que aparecem nos processos de ${a} — clique para explorar` }));
+    }
+    head.appendChild(hl); card.appendChild(head);
+
+    const lista = el('div', { class: 'rel-list' });
+    const firstName = (s) => String(s || '').trim().split(/\s+/)[0];
+    if (b) {
+      const comuns = Services.partesComunsAdvogados(a, b);
+      if (!comuns.length) lista.appendChild(el('p', { class: 'result-meta', text: 'Nenhuma parte em comum entre os dois.' }));
+      const maxP = comuns.length ? Math.max(...comuns.map((p) => Math.max(p.n_emA, p.n_emB))) : 1;
+      comuns.slice(0, 80).forEach((p, i) => {
+        const it = el('div', { class: 'rel-item rel-ponte' });
+        it.appendChild(el('span', { class: 'rel-rank', text: '#' + (i + 1) }));
+        it.appendChild(el('span', { class: 'rel-name' }, el('span', { text: p.nome })));
+        const dual = el('span', { class: 'rel-dual' });
+        const mk = (cls, n) => { const seg = el('span', { class: 'rel-dual-seg ' + cls }); const bar = el('i'); bar.style.width = Math.round((n / maxP) * 100) + '%'; seg.append(bar, el('b', { text: String(n) })); return seg; };
+        dual.append(mk('seg-a', p.n_emA), mk('seg-b', p.n_emB));
+        it.appendChild(dual);
+        it.title = `${p.n_emA} proc. com ${firstName(a)} · ${p.n_emB} com ${firstName(b)}`;
+        it.addEventListener('click', () => go('#/partes?q=' + encodeURIComponent(p.nome)));
+        lista.appendChild(it);
+      });
+    } else {
+      const pessoas = Services.partesDoAdvogado(a);
+      if (!pessoas.length) lista.appendChild(el('p', { class: 'result-meta', text: 'Sem partes registradas nesses processos.' }));
+      const max = pessoas.length ? pessoas[0].n : 1;
+      pessoas.slice(0, 80).forEach((p, i) => {
+        const it = el('div', { class: 'rel-item' });
+        it.appendChild(el('span', { class: 'rel-rank', text: '#' + (i + 1) }));
+        it.appendChild(el('span', { class: 'rel-name' }, el('span', { text: p.nome })));
+        const bar = el('div', { class: 'rel-bar' }); const fill = el('i'); fill.style.width = Math.round((p.n / max) * 100) + '%'; bar.appendChild(fill); it.appendChild(bar);
+        it.appendChild(el('span', { class: 'rel-num', html: `<b>${p.n}</b> proc.` }));
+        it.addEventListener('click', () => go('#/partes?q=' + encodeURIComponent(p.nome)));
+        lista.appendChild(it);
+      });
+    }
+    card.appendChild(lista);
+    return card;
+  }
+
+  function parteCard(x) {
+    const c = el('button', { class: 'adv-card' });
+    c.style.setProperty('--c', colorFor(x.key || x.nome));
+    c.appendChild(el('span', { class: 'adv-avatar', text: iniciais(x.nome) }));
+    const info = el('div', { class: 'adv-info' });
+    info.appendChild(el('div', { class: 'adv-name', text: x.nome }));
+    const meta = [];
+    if (x.polo && POLO_TAG[x.polo]) meta.push(POLO_TAG[x.polo]);
+    if (x.temDoc) meta.push('documento');
+    if (meta.length) info.appendChild(el('div', { class: 'adv-oab', text: meta.join(' · ') }));
+    c.appendChild(info);
+    const cnt = el('div', { class: 'adv-count' });
+    cnt.appendChild(el('div', { class: 'num', text: x.n }));
+    cnt.appendChild(el('div', { class: 'lab', text: x.n === 1 ? 'processo' : 'processos' }));
+    c.appendChild(cnt);
+    c.addEventListener('click', () => go('#/partes?q=' + encodeURIComponent(x.nome)));
+    return c;
+  }
+
+  // painel de uma pessoa: relações (Lista/Rede) + detalhes + lista de processos
+  function painelParte(nome) {
+    const det = Services.obterParte(nome);
+    const nomeDisp = det ? det.nome : nome;
+    const wrapAll = el('div');
+
+    const card = el('div', { class: 'adv-related' });
+    const head = el('div', { class: 'adv-related-head' });
+    const hl = el('div');
+    hl.appendChild(el('h3', { text: nomeDisp }));
+    hl.appendChild(el('div', { class: 'sub', text: 'Conexões com outras partes (por polo) e com os advogados dos processos' }));
+    const toggle = el('div', { class: 'rel-toggle' });
+    const btnLista = el('button', { class: 'rel-toggle-btn', text: 'Lista' });
+    const btnRede = el('button', { class: 'rel-toggle-btn', text: 'Rede' });
+    toggle.append(btnLista, btnRede);
+    head.append(hl, toggle); card.appendChild(head);
+
+    const leg = el('div', { class: 'grafo-legenda' });
+    [['advogado', 'Advogado'], ['oposto', 'Polo oposto'], ['mesmo', 'Mesmo polo'], ['desconhecido', 'Polo indefinido']].forEach(([rel, lab]) => {
+      const chip = el('span', { class: 'gl-item' });
+      const dot = el('span', { class: 'gl-dot' }); dot.style.background = relCor(rel);
+      chip.append(dot, el('span', { text: lab })); leg.appendChild(chip);
+    });
+    card.appendChild(leg);
+
+    const relList = el('div', { class: 'rel-list' });
+    const rel = Services.partesRelacionadas(nome);
+    if (!rel.length) relList.appendChild(el('p', { class: 'result-meta', text: 'Sem conexões com outras partes.' }));
+    const max = rel.length ? rel[0].n_comum : 1;
+    rel.slice(0, 120).forEach((r, i) => {
+      const it = el('div', { class: 'rel-item' });
+      it.appendChild(el('span', { class: 'rel-rank', text: '#' + (i + 1) }));
+      const nm = el('span', { class: 'rel-name' });
+      const dot = el('span', { class: 'rel-dot' }); dot.style.background = relCor(r.rel); dot.title = REL_LABEL[r.rel] || '';
+      nm.append(dot, el('span', { text: r.nome }));
+      it.appendChild(nm);
+      const bar = el('div', { class: 'rel-bar' }); const fill = el('i'); fill.style.width = Math.round((r.n_comum / max) * 100) + '%'; bar.appendChild(fill); it.appendChild(bar);
+      it.appendChild(el('span', { class: 'rel-num', html: `<b>${r.n_comum}</b> em comum` }));
+      it.addEventListener('click', () => go('#/partes?q=' + encodeURIComponent(r.nome)));
+      relList.appendChild(it);
+    });
+    card.appendChild(relList);
+
+    const grafoWrap = el('div', { class: 'grafo-wrap' }); grafoWrap.style.display = 'none'; card.appendChild(grafoWrap);
+    let grafoRendered = false;
+    function showLista() { btnLista.classList.add('active'); btnRede.classList.remove('active'); relList.style.display = ''; grafoWrap.style.display = 'none'; }
+    function showRede() {
+      btnLista.classList.remove('active'); btnRede.classList.add('active'); relList.style.display = 'none'; grafoWrap.style.display = '';
+      if (!grafoRendered) {
+        grafoRendered = true;
+        if (window.GrafoAdv) {
+          GrafoAdv.loadD3().then(() => {
+            const g = Services.grafoParte(nome);
+            g.nodes.forEach((n) => { n.cor = relCor(n.rel); });
+            GrafoAdv.render(grafoWrap, nomeDisp, g);
+          }).catch(() => { grafoWrap.textContent = 'Não foi possível carregar o diagrama.'; });
+        } else { grafoWrap.textContent = 'grafo.js não carregado.'; }
+      }
+    }
+    btnLista.addEventListener('click', showLista); btnRede.addEventListener('click', showRede);
+    showLista();
+    wrapAll.appendChild(card);
+
+    if (det) {
+      const dcard = el('div', { class: 'rail-card', style: 'margin-top:16px;' });
+      dcard.appendChild(el('h4', { text: 'Detalhes' }));
+      const facts = el('div', { class: 'rail-facts' });
+      const addF = (k, val, mono) => { if (!val) return; const f = el('div', { class: 'rail-fact' }); f.append(el('span', { class: 'k', text: k }), el('span', { class: 'v' + (mono ? ' mono' : ''), text: val })); facts.appendChild(f); };
+      addF('Processos', String(det.n));
+      const polosTxt = [det.polos.ativo ? `${det.polos.ativo} ativo` : '', det.polos.passivo ? `${det.polos.passivo} passivo` : '', det.polos.outro ? `${det.polos.outro} outro` : ''].filter(Boolean).join(' · ');
+      addF('Polo', polosTxt);
+      if (det.documentos.length) addF('Documento', det.documentos.join(', '), true);
+      if (det.nascimentos.length) addF('Nascimento', det.nascimentos.join(', '), true);
+      if (det.fontes.length) addF('Fonte', det.fontes.join(', '));
+      dcard.appendChild(facts);
+      wrapAll.appendChild(dcard);
+    }
+
+    const rows = Services.buscarPorParte(nome);
+    wrapAll.appendChild(el('p', { class: 'result-meta', style: 'margin-top:16px;', html: `<b>${rows.length}</b> processo${rows.length !== 1 ? 's' : ''} com <b>${esc(nomeDisp)}</b>` }));
+    const cont = el('div'); renderListaProcessos(rows, cont); wrapAll.appendChild(cont);
+    return wrapAll;
+  }
+
+  function renderDiretorioPartes(sub, results, ac) {
+    const all = Services.listarPartes();
+    sub.textContent = `${all.length.toLocaleString('pt-BR')} pessoas na base`;
+    results.appendChild(el('p', { class: 'result-meta', text: 'Mais frequentes primeiro. Clique em uma pessoa para ver conexões e processos.' }));
+    const grid = el('div', { class: 'adv-grid' });
+    results.appendChild(grid);
+    function paint(term) {
+      grid.innerHTML = '';
+      const t = (term || '').trim().toLowerCase();
+      const list = t ? all.filter((x) => x.nome.toLowerCase().includes(t)) : all;
+      list.slice(0, 400).forEach((x) => grid.appendChild(parteCard(x)));
+      if (!list.length) grid.appendChild(emptyState('Nenhuma pessoa', 'Ajuste o filtro.', '<circle cx="11" cy="9" r="3"/><path d="M5 19c0-3 3-5 6-5s6 2 6 5"/>'));
+    }
+    let deb;
+    ac.addEventListener('input', () => { clearTimeout(deb); deb = setTimeout(() => paint(ac.getValue()), 220); });
+    paint('');
+  }
+
+  function screenPartes(params) {
+    const v = view(); v.innerHTML = ''; setActiveNav('partes');
+    const top = el('div', { class: 'topbar' });
+    top.appendChild(el('div', { class: 'topbar-row', html: '<h1 class="page-title">Partes</h1><span class="page-sub" id="partes-sub"></span>' }));
+    const tools = el('div', { class: 'adv-toolbar', style: 'margin-top:14px;' });
+    const fA = el('div', { class: 'field', style: 'flex:1; min-width:230px; max-width:360px;' });
+    fA.innerHTML = `<svg class="ico-search" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4" stroke-linecap="round"/></svg>`;
+    const ac = makeAdvAC('Nome da pessoa…', params.q || '', Services.listarPartes);
+    fA.appendChild(ac.el);
+    const btn = el('button', { class: 'btn primary', text: 'Buscar' });
+    const btnAll = el('a', { class: 'btn', href: '#/partes', text: 'Ver todas' });
+    tools.append(fA, btn, btnAll);
+    top.appendChild(tools); v.appendChild(top);
+
+    const content = el('div', { class: 'content' });
+    const results = el('div'); content.appendChild(results); v.appendChild(content);
+
+    function navTo() {
+      const q = ac.getValue();
+      const h = q ? '#/partes?q=' + encodeURIComponent(q) : '#/partes';
+      State.suppressRoute = true; location.hash = h; setTimeout(() => State.suppressRoute = false, 0);
+      render();
+    }
+    btn.addEventListener('click', navTo);
+    ac.addEventListener('keydown', (e) => { if (e.key === 'Enter') navTo(); });
+    ac.addEventListener('change', navTo);
+
+    function render() {
+      const q = ac.getValue(); results.innerHTML = '';
+      const sub = $('#partes-sub');
+      if (!q) { renderDiretorioPartes(sub, results, ac); return; }
+      sub.textContent = '';
+      results.appendChild(painelParte(q));
+    }
+    render();
+    if (!params.q && !State.restoringContext) setTimeout(() => ac.el.querySelector('input').focus(), 30);
+  }
+
   /* ============================== autocomplete advogado ================ */
-  function makeAdvAC(placeholder, initialValue) {
+  function makeAdvAC(placeholder, initialValue, listFn) {
+    const fetchList = listFn || (() => Services.listarAdvogados());
     const wrap = el('div', { class: 'adv-ac' });
     const input = el('input', { class: 'input', type: 'search', placeholder, value: initialValue || '' });
     const list = el('div', { class: 'adv-ac-list' });
@@ -1139,7 +1368,7 @@
     }
 
     function suggest(q) {
-      if (!allAdvs) allAdvs = Services.listarAdvogados();
+      if (!allAdvs) allAdvs = fetchList();
       if (q && q.length >= 2) {
         const nq = norm(q);
         open(allAdvs.filter((a) => norm(a.nome).includes(nq)).slice(0, 12));
@@ -1358,6 +1587,7 @@
       return { screen: 'detalhe', numero, sub: params };
     }
     if (parts[0] === 'advogado') return { screen: 'advogado', params };
+    if (parts[0] === 'partes') return { screen: 'partes', params };
     if (parts[0] === 'agenda') return { screen: 'agenda', params };
     if (parts[0] === 'favoritos') return { screen: 'favoritos', params };
     if (parts[0] === 'buscar') return { screen: 'lista', params };
@@ -1388,6 +1618,7 @@
     try {
       if (r.screen === 'detalhe') screenDetalhe(r.numero, r.sub);
       else if (r.screen === 'advogado') screenAdvogado(r.params);
+      else if (r.screen === 'partes') screenPartes(r.params);
       else if (r.screen === 'agenda') screenAgenda(r.params);
       else if (r.screen === 'favoritos') screenFavoritos();
       else screenLista(r.params);

@@ -395,6 +395,225 @@
       });
   }
 
+  /* --------------------------------------------- índice de partes (pessoas)
+   * Fonte: tabela partes_processo (nome, documento, nascimento, polo, fonte).
+   * Identidade = nome normalizado (sem acento/caixa/espaços) — documento e
+   * nascimento ficam só nos "detalhes", não agrupam. */
+  let _partesIndex = null;
+  function _parteKey(nome) {
+    return String(nome || '')
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9 ]/g, ' ')
+      .replace(/\s+/g, ' ').trim();
+  }
+  function _poloClasse(polo) {
+    const s = (polo || '').toLowerCase();
+    if (s.includes('ativo')) return 'ativo';
+    if (s.includes('passiv')) return 'passivo';
+    return 'outro';
+  }
+  function _buildPartesIndex() {
+    let rows = [];
+    try {
+      rows = query("SELECT numero_processo AS np, nome, documento, nascimento, polo, fonte FROM partes_processo");
+    } catch (e) {
+      _partesIndex = { pinfo: new Map(), procToPartes: new Map() };
+      return;
+    }
+    const pinfo = new Map();         // key -> rec
+    const procToPartes = new Map();  // numero -> [{key, polo}]
+    for (const r of rows) {
+      const k = _parteKey(r.nome);
+      if (!k || k.length < 2) continue;
+      let rec = pinfo.get(k);
+      if (!rec) {
+        rec = { key: k, numeros: new Set(), poloByProc: new Map(), docs: new Set(), nascimentos: new Set(), fontes: new Set(), nomes: new Map() };
+        pinfo.set(k, rec);
+      }
+      rec.numeros.add(r.np);
+      const cls = _poloClasse(r.polo);
+      // mantém o polo mais informativo para o processo (evita sobrescrever ativo/passivo por 'outro')
+      if (!rec.poloByProc.has(r.np) || (rec.poloByProc.get(r.np) === 'outro' && cls !== 'outro')) rec.poloByProc.set(r.np, cls);
+      if (r.documento) rec.docs.add(r.documento);
+      if (r.nascimento) rec.nascimentos.add(r.nascimento);
+      if (r.fonte) rec.fontes.add(r.fonte);
+      rec.nomes.set(r.nome, (rec.nomes.get(r.nome) || 0) + 1);
+      let arr = procToPartes.get(r.np);
+      if (!arr) { arr = []; procToPartes.set(r.np, arr); }
+      const ex = arr.find((x) => x.key === k);
+      if (!ex) arr.push({ key: k, polo: cls });
+      else if (ex.polo === 'outro' && cls !== 'outro') ex.polo = cls;
+    }
+    for (const rec of pinfo.values()) {
+      let best = '', bc = -1;
+      for (const [nm, c] of rec.nomes) if (c > bc) { bc = c; best = nm; }
+      rec.nome = best;
+    }
+    _partesIndex = { pinfo, procToPartes };
+  }
+  function _ensurePartes() { if (!_partesIndex) _buildPartesIndex(); return _partesIndex; }
+
+  function _poloDominante(rec) {
+    const p = { ativo: 0, passivo: 0, outro: 0 };
+    for (const c of rec.poloByProc.values()) p[c]++;
+    if (p.ativo >= p.passivo && p.ativo >= p.outro && p.ativo) return 'ativo';
+    if (p.passivo >= p.outro && p.passivo) return 'passivo';
+    return 'outro';
+  }
+
+  function listarPartes() {
+    const { pinfo } = _ensurePartes();
+    return [...pinfo.values()]
+      .map((r) => ({ nome: r.nome, key: r.key, n: r.numeros.size, polo: _poloDominante(r), temDoc: r.docs.size > 0 }))
+      .sort((a, b) => b.n - a.n || a.nome.localeCompare(b.nome, 'pt'));
+  }
+  function statsPartes() { const { pinfo } = _ensurePartes(); return { total: pinfo.size }; }
+
+  function obterParte(nome) {
+    const { pinfo } = _ensurePartes();
+    const rec = pinfo.get(_parteKey(nome));
+    if (!rec) return null;
+    const polos = { ativo: 0, passivo: 0, outro: 0 };
+    for (const c of rec.poloByProc.values()) polos[c]++;
+    return {
+      nome: rec.nome, key: rec.key, n: rec.numeros.size,
+      documentos: [...rec.docs], nascimentos: [...rec.nascimentos],
+      fontes: [...rec.fontes], polos, polo: _poloDominante(rec),
+    };
+  }
+
+  function buscarPorParte(nome) {
+    const { pinfo } = _ensurePartes();
+    const rec = pinfo.get(_parteKey(nome));
+    if (!rec || !rec.numeros.size) return [];
+    const nums = [...rec.numeros];
+    const ph = nums.map(() => '?').join(',');
+    return query(
+      `SELECT numero, cnj, classe, orgao, assunto, advogados, partes,
+              n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje, n_eventos_ia,
+              data_ultima_com, data_ultimo_mov
+       FROM processos WHERE numero IN (${ph})
+       ORDER BY data_ultima_com DESC NULLS LAST`,
+      nums
+    );
+  }
+
+  /* Ego-network da pessoa: co-partes (cor por relação de polo) + advogados (verde).
+   * Os nós trazem `rel` ('central'|'oposto'|'mesmo'|'desconhecido'|'advogado');
+   * a cor concreta é resolvida na UI (tema). */
+  const _REL_RANK = { oposto: 3, mesmo: 2, desconhecido: 1 };
+  function grafoParte(nome, limite = 40) {
+    const { pinfo, procToPartes } = _ensurePartes();
+    const k = _parteKey(nome);
+    const rec = pinfo.get(k);
+    if (!rec) return { nodes: [], edges: [] };
+
+    const coCount = new Map();   // okey -> nº de processos compartilhados
+    const relMap  = new Map();   // okey -> relação agregada
+    for (const numero of rec.numeros) {
+      const myPolo = rec.poloByProc.get(numero) || 'outro';
+      for (const { key: ok, polo: oPolo } of (procToPartes.get(numero) || [])) {
+        if (ok === k) continue;
+        coCount.set(ok, (coCount.get(ok) || 0) + 1);
+        let rel;
+        if (myPolo === 'outro' || oPolo === 'outro') rel = 'desconhecido';
+        else if (myPolo !== oPolo) rel = 'oposto';
+        else rel = 'mesmo';
+        if (!relMap.has(ok) || _REL_RANK[rel] > _REL_RANK[relMap.get(ok)]) relMap.set(ok, rel);
+      }
+    }
+    const topParts = [...coCount.entries()].sort((a, b) => b[1] - a[1]).slice(0, limite);
+
+    // advogados (patronos) dos processos da pessoa
+    const { info: advInfo, procToKeys } = _ensureAdv();
+    const advCount = new Map();
+    for (const numero of rec.numeros)
+      for (const ak of (procToKeys.get(numero) || [])) advCount.set(ak, (advCount.get(ak) || 0) + 1);
+    const topAdvs = [...advCount.entries()].sort((a, b) => b[1] - a[1]).slice(0, Math.min(20, limite));
+
+    const nodes = [{ id: rec.nome, nome: rec.nome, central: true, rel: 'central' }];
+    const idOf = new Map([[k, rec.nome]]);
+    for (const [ok, c] of topParts) {
+      const r = pinfo.get(ok); if (!r) continue;
+      nodes.push({ id: r.nome, nome: r.nome, central: false, tipo: 'parte', rel: relMap.get(ok) || 'desconhecido', n_com_central: c, href: '#/partes?q=' + encodeURIComponent(r.nome) });
+      idOf.set(ok, r.nome);
+    }
+    for (const [ak, c] of topAdvs) {
+      const r = advInfo.get(ak); if (!r) continue;
+      nodes.push({ id: 'adv:' + r.nome, nome: r.nome, central: false, tipo: 'advogado', rel: 'advogado', n_com_central: c, href: '#/advogado?q=' + encodeURIComponent(r.nome) });
+    }
+
+    const edges = [];
+    for (const nd of nodes) if (!nd.central) edges.push({ source: rec.nome, target: nd.id, n_comum: nd.n_com_central || 1 });
+    // co-parte ↔ co-parte (compartilham processo) — mostra clusters
+    const pk = topParts.map(([ok]) => ok);
+    for (let i = 0; i < pk.length; i++) {
+      for (let j = i + 1; j < pk.length; j++) {
+        const a = pinfo.get(pk[i]), b = pinfo.get(pk[j]);
+        if (!a || !b) continue;
+        const [small, large] = a.numeros.size <= b.numeros.size ? [a, b] : [b, a];
+        let shared = 0; for (const nu of small.numeros) if (large.numeros.has(nu)) shared++;
+        if (shared > 0) edges.push({ source: idOf.get(pk[i]), target: idOf.get(pk[j]), n_comum: shared });
+      }
+    }
+    return { nodes, edges };
+  }
+
+  // Conexões ranqueadas (para a visão "Lista" da pessoa)
+  function partesRelacionadas(nome, limite = 999) {
+    const { pinfo, procToPartes } = _ensurePartes();
+    const k = _parteKey(nome);
+    const rec = pinfo.get(k);
+    if (!rec) return [];
+    const coCount = new Map(); const relMap = new Map();
+    for (const numero of rec.numeros) {
+      const myPolo = rec.poloByProc.get(numero) || 'outro';
+      for (const { key: ok, polo: oPolo } of (procToPartes.get(numero) || [])) {
+        if (ok === k) continue;
+        coCount.set(ok, (coCount.get(ok) || 0) + 1);
+        let rel = (myPolo === 'outro' || oPolo === 'outro') ? 'desconhecido' : (myPolo !== oPolo ? 'oposto' : 'mesmo');
+        if (!relMap.has(ok) || _REL_RANK[rel] > _REL_RANK[relMap.get(ok)]) relMap.set(ok, rel);
+      }
+    }
+    return [...coCount.entries()].sort((a, b) => b[1] - a[1]).slice(0, limite).map(([ok, c]) => {
+      const r = pinfo.get(ok);
+      return { nome: r ? r.nome : ok, key: ok, n_comum: c, n_total: r ? r.numeros.size : 0, rel: relMap.get(ok) || 'desconhecido' };
+    });
+  }
+
+  // Pessoas nos processos de um advogado (box single)
+  function partesDoAdvogado(nome) {
+    const { info } = _ensureAdv();
+    const arec = info.get(_advKey(nome));
+    if (!arec) return [];
+    const { pinfo, procToPartes } = _ensurePartes();
+    const cnt = new Map();
+    for (const numero of arec.numeros)
+      for (const { key } of (procToPartes.get(numero) || [])) cnt.set(key, (cnt.get(key) || 0) + 1);
+    return [...cnt.entries()].sort((a, b) => b[1] - a[1]).map(([key, n]) => {
+      const r = pinfo.get(key); return { nome: r ? r.nome : key, key, n };
+    });
+  }
+
+  // Pessoas em comum entre os processos de dois advogados (box com 2 advogados)
+  function partesComunsAdvogados(nomeA, nomeB) {
+    const { info } = _ensureAdv();
+    const ra = info.get(_advKey(nomeA)), rb = info.get(_advKey(nomeB));
+    if (!ra || !rb) return [];
+    const { pinfo, procToPartes } = _ensurePartes();
+    const cntA = new Map(), cntB = new Map();
+    for (const nu of ra.numeros) for (const { key } of (procToPartes.get(nu) || [])) cntA.set(key, (cntA.get(key) || 0) + 1);
+    for (const nu of rb.numeros) for (const { key } of (procToPartes.get(nu) || [])) cntB.set(key, (cntB.get(key) || 0) + 1);
+    const out = [];
+    for (const [key, na] of cntA) {
+      const nb = cntB.get(key);
+      if (nb) { const r = pinfo.get(key); out.push({ nome: r ? r.nome : key, key, n_emA: na, n_emB: nb }); }
+    }
+    out.sort((x, y) => (Math.min(y.n_emA, y.n_emB) - Math.min(x.n_emA, x.n_emB)) || ((y.n_emA + y.n_emB) - (x.n_emA + x.n_emB)));
+    return out;
+  }
+
   /* ----------------------------------- 5. Grafo completo de relações */
   /**
    * Retorna { nodes, edges } para o grafo Les-Misérables de `nome`.
@@ -691,5 +910,14 @@
     atuacaoHierarquia,
     tribunalCNJ,
     buscaGeral,
+    // partes (pessoas)
+    listarPartes,
+    statsPartes,
+    obterParte,
+    buscarPorParte,
+    grafoParte,
+    partesRelacionadas,
+    partesDoAdvogado,
+    partesComunsAdvogados,
   };
 })();

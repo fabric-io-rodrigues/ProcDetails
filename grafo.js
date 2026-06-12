@@ -95,7 +95,8 @@
 
     /* --- funções de escala ----------------------------------------------- */
     const nodeR = (d) => d.central ? 22 : 7 + Math.round((d.n_com_central / maxCentral) * 11);
-    const fillOp   = (d) => d.central ? 1   : 0.13 + 0.87 * (d.n_com_central / maxCentral);
+    // nós com cor própria (grafo de partes) precisam de piso de opacidade alto p/ a cor ser legível
+    const fillOp   = (d) => d.central ? 1   : (d.cor ? 0.62 + 0.33 * (d.n_com_central / maxCentral) : 0.13 + 0.87 * (d.n_com_central / maxCentral));
     const strokeOp = (d) => d.central ? 0   : 0.25 + 0.75 * (d.n_com_central / maxCentral);
     const labelOp  = (d) => d.central ? 1   : 0.35 + 0.65 * (d.n_com_central / maxCentral);
 
@@ -167,9 +168,9 @@
     /* círculo principal */
     nodeG.append('circle')
       .attr('r', nodeR)
-      .attr('fill', accent)
+      .attr('fill', d => d.cor || accent)
       .attr('fill-opacity', fillOp)
-      .attr('stroke', accent)
+      .attr('stroke', d => d.cor || accent)
       .attr('stroke-opacity', strokeOp)
       .attr('stroke-width', 1.5);
 
@@ -204,10 +205,14 @@
 
     /* --- drag nos nós ---------------------------------------------------- */
     nodeG.call(d3.drag()
-      .on('start', (ev, d) => { if (!ev.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
-      .on('drag',  (ev, d) => { d.fx = ev.x; d.fy = ev.y; })
+      .on('start', (ev, d) => { if (!ev.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; d.__moved = false; })
+      .on('drag',  (ev, d) => { d.fx = ev.x; d.fy = ev.y; d.__moved = true; })
       .on('end',   (ev, d) => { if (!ev.active) sim.alphaTarget(0); d.fx = null; d.fy = null; })
     );
+
+    /* --- clique no nó: navega (se o nó trouxer href) --------------------- */
+    nodeG.filter(d => d.href).style('cursor', 'pointer')
+      .on('click', (ev, d) => { if (d.href && !d.__moved) location.hash = d.href; });
 
     /* --- highlight ao hover ---------------------------------------------- */
     function highlightNode(d) {
