@@ -621,6 +621,16 @@ select.input { appearance: none; padding-right: 34px;
 .polo-parte-link { cursor: pointer; border-radius: var(--r-sm); transition: color .12s, background .12s; }
 .polo-parte-link:hover { color: var(--accent); background: var(--hover); }
 
+/* partes identificadas (detalhe do processo): nome + tag «Polo · fonte» */
+.parte-ident { display: flex; flex-direction: column; gap: 2px; }
+.parte-row { display: flex; align-items: baseline; gap: 8px; padding: 4px 6px; }
+.parte-nome { flex: 1; min-width: 0; font-size: 13px; line-height: 1.4; }
+.parte-tag { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--muted); font-family: var(--mono); white-space: nowrap; }
+.parte-tag-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--faint); }
+.parte-tag-dot.polo-ativo { background: var(--tjrj); }
+.parte-tag-dot.polo-passivo { background: var(--mprj); }
+.parte-tag-dot.polo-outro { background: var(--faint); }
+
 /* toggle lista / rede */
 .rel-toggle { display: flex; gap: 6px; margin-bottom: 14px; }
 .rel-toggle-btn { padding: 5px 14px; font-size: 12.5px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); color: var(--ink-2); cursor: pointer; font-family: var(--ui); font-weight: 500; transition: border-color .12s, background .12s, color .12s; }
@@ -760,6 +770,13 @@ select.input { appearance: none; padding-right: 34px;
 
   /* barras duplas A/B mais estreitas no celular */
   .rel-dual { width: 92px; }
+
+  /* lista de relacionados/partes: quebra em 2 linhas — nome+contagem em cima,
+     barra ocupando a largura embaixo (evita a contagem sumir à direita) */
+  .rel-item { flex-wrap: wrap; align-items: flex-start; row-gap: 8px; }
+  .rel-name { flex: 1 1 auto; }
+  .rel-bar { order: 10; flex: 1 1 100%; width: auto; }
+  .rel-num { width: auto; min-width: 64px; }
 
   /* barra superior fixa — respeita o notch (safe-area no topo) */
   .mobile-bar {

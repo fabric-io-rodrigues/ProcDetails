@@ -610,23 +610,40 @@
     renderTagCard();
     rail.appendChild(tagCard);
 
-    const partes = parsePartes(p.partes);
-    if (partes.length) {
+    // Partes: identificadas (tabela partes_processo, com polo+fonte) acima; demais (string) abaixo
+    const identP = Services.partesDoProcesso(p.numero);
+    const partesStr = parsePartes(p.partes);
+    if (identP.length || partesStr.length) {
       const card = el('div', { class: 'rail-card' });
-      card.appendChild(el('h4', { text: `Partes (${partes.length})` }));
-      const grupos = { ativo: [], passivo: [], outro: [] };
-      partes.forEach((x) => grupos[poloClasse(x.polo)].push(x));
-      ['ativo', 'passivo', 'outro'].forEach((g) => {
-        if (!grupos[g].length) return;
-        const gr = el('div', { class: 'polo-group' });
-        gr.appendChild(el('div', { class: 'polo-label ' + g, text: POLO_LABEL[g] }));
-        grupos[g].forEach((x) => {
-          const pe = el('div', { class: 'polo-parte polo-parte-link', text: x.nome });
-          pe.addEventListener('click', () => go('#/partes?q=' + encodeURIComponent(x.nome)));
-          gr.appendChild(pe);
+      const ordem = { ativo: 0, passivo: 1, outro: 2 };
+      const ident = identP.slice().sort((a, b) => (ordem[a.polo] - ordem[b.polo]) || a.nome.localeCompare(b.nome, 'pt'));
+      const idKeys = new Set(ident.map((x) => x.key));
+      const outras = partesStr.filter((x) => !idKeys.has(Services.keyPessoa(x.nome)));
+      card.appendChild(el('h4', { text: `Partes (${ident.length + outras.length})` }));
+
+      if (ident.length) {
+        const wrap = el('div', { class: 'parte-ident' });
+        ident.forEach((x) => {
+          const row = el('div', { class: 'parte-row polo-parte-link' });
+          row.addEventListener('click', () => go('#/partes?q=' + encodeURIComponent(x.nome)));
+          row.appendChild(el('span', { class: 'parte-nome', text: x.nome }));
+          const tag = el('span', { class: 'parte-tag' });
+          tag.appendChild(el('span', { class: 'parte-tag-dot polo-' + x.polo }));
+          const parts = [];
+          if (x.polo === 'ativo' || x.polo === 'passivo') parts.push(POLO_LABEL[x.polo]);
+          if (x.fonte) parts.push(x.fonte);
+          tag.appendChild(el('span', { text: parts.join(' · ') || '—' }));
+          row.appendChild(tag);
+          wrap.appendChild(row);
         });
+        card.appendChild(wrap);
+      }
+      if (outras.length) {
+        const gr = el('div', { class: 'polo-group', style: ident.length ? 'margin-top:14px;' : '' });
+        gr.appendChild(el('div', { class: 'polo-label outro', text: 'Outras' }));
+        outras.forEach((x) => gr.appendChild(el('div', { class: 'polo-parte', text: x.nome })));
         card.appendChild(gr);
-      });
+      }
       rail.appendChild(card);
     }
 
@@ -1255,6 +1272,24 @@
       if (det.fontes.length) addF('Fonte', det.fontes.join(', '));
       dcard.appendChild(facts);
       wrapAll.appendChild(dcard);
+    }
+
+    // advogados presentes em TODOS os processos da pessoa
+    const advComuns = Services.advogadosComunsDaParte(nome);
+    if (advComuns.length) {
+      const acard = el('div', { class: 'rail-card', style: 'margin-top:16px;' });
+      acard.appendChild(el('h4', { text: `Advogados em comum (${advComuns.length})` }));
+      acard.appendChild(el('div', { class: 'sub', style: 'margin:-2px 0 10px;', text: 'Presentes em todos os processos desta pessoa' }));
+      const chips = el('div', { class: 'chips' });
+      advComuns.slice(0, 24).forEach((a) => {
+        const c = el('span', { class: 'chip click' });
+        c.appendChild(el('span', { text: a.nome }));
+        if (a.oab) c.appendChild(el('span', { class: 'oab', text: a.oab.replace(/^OAB[\s/]*/i, '') }));
+        c.addEventListener('click', () => go('#/advogado?q=' + encodeURIComponent(a.nome)));
+        chips.appendChild(c);
+      });
+      acard.appendChild(chips);
+      wrapAll.appendChild(acard);
     }
 
     const rows = Services.buscarPorParte(nome);

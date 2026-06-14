@@ -614,6 +614,39 @@
     return out;
   }
 
+  // Advogados presentes em TODOS os processos da pessoa (interseção; qualquer polo)
+  function advogadosComunsDaParte(nome) {
+    const { pinfo } = _ensurePartes();
+    const rec = pinfo.get(_parteKey(nome));
+    if (!rec || !rec.numeros.size) return [];
+    const { info, procToKeys } = _ensureAdv();
+    let inter = null;
+    for (const nu of rec.numeros) {
+      const ks = new Set(procToKeys.get(nu) || []);
+      inter = inter === null ? ks : new Set([...inter].filter((k) => ks.has(k)));
+      if (!inter.size) break;
+    }
+    if (!inter || !inter.size) return [];
+    return [...inter].map((k) => {
+      const r = info.get(k);
+      return { nome: r ? r.nome : k, oab: r ? r.oab : '', n_total: r ? r.numeros.size : 0 };
+    }).sort((a, b) => b.n_total - a.n_total || a.nome.localeCompare(b.nome, 'pt'));
+  }
+
+  // Partes (linhas cruas da tabela) de um processo — p/ enriquecer o card do detalhe
+  function partesDoProcesso(numero) {
+    let rows = [];
+    try { rows = query("SELECT nome, documento, nascimento, polo, fonte FROM partes_processo WHERE numero_processo = ? ORDER BY id", [numero]); }
+    catch (e) { return []; }
+    return rows.map((r) => ({
+      nome: r.nome, key: _parteKey(r.nome), polo: _poloClasse(r.polo), poloRaw: r.polo,
+      fonte: r.fonte, documento: r.documento, nascimento: r.nascimento,
+    }));
+  }
+
+  // normalizador público (p/ casar nomes da string antiga com a tabela)
+  function keyPessoa(nome) { return _parteKey(nome); }
+
   /* ----------------------------------- 5. Grafo completo de relações */
   /**
    * Retorna { nodes, edges } para o grafo Les-Misérables de `nome`.
@@ -919,5 +952,8 @@
     partesRelacionadas,
     partesDoAdvogado,
     partesComunsAdvogados,
+    advogadosComunsDaParte,
+    partesDoProcesso,
+    keyPessoa,
   };
 })();
