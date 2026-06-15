@@ -64,7 +64,9 @@
 /* Garante que [hidden] funcione mesmo em elementos com display explícito no CSS */
 [hidden] { display: none !important; }
 html, body { overflow-x: hidden; overscroll-behavior: none; }
-html { background: var(--bg); }
+/* desativa o "font boosting" automático do iOS/Safari (inflava o texto dos cards
+   de Advogados/Partes quando o conteúdo passava da largura da tela) */
+html { background: var(--bg); -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body {
   min-height: 100vh;
   margin: 0;
@@ -560,7 +562,7 @@ select.input { appearance: none; padding-right: 34px;
 
 /* --------------------------------------------------- advogados (cards) */
 .adv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 12px; }
-.adv-card { display: flex; align-items: center; gap: 13px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 14px 15px; cursor: pointer; transition: all .14s; box-shadow: var(--shadow-1); text-align: left; color: var(--ink); }
+.adv-card { display: flex; align-items: center; gap: 13px; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 14px 15px; cursor: pointer; transition: all .14s; box-shadow: var(--shadow-1); text-align: left; color: var(--ink); }
 .adv-card:hover { border-color: color-mix(in oklch, var(--c, var(--accent)) 50%, var(--line)); transform: translateY(-1px); box-shadow: var(--shadow-2); }
 .adv-avatar { width: 40px; height: 40px; flex: none; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; font-family: var(--ui);
   color: var(--c, var(--accent));
