@@ -165,10 +165,21 @@
     return tokens.map((t) => '"' + t + '"*').join(' ');
   }
 
+  // Colunas opcionais: n_movimentos_dje / movimentos.links só existem em bases com DJERJ
+  const _colsTabela = {};
+  function _temCol(tabela, col) {
+    if (!_colsTabela[tabela]) {
+      try { _colsTabela[tabela] = new Set(query(`PRAGMA table_info(${tabela})`).map((r) => r.name)); }
+      catch (e) { _colsTabela[tabela] = new Set(); }
+    }
+    return _colsTabela[tabela].has(col);
+  }
+  const _djeCol = (pfx = '') => (_temCol('processos', 'n_movimentos_dje') ? `, ${pfx}n_movimentos_dje` : '');
+
   /* ----------------------------------------------------------- 1. Lista */
   function listarProcessos({ busca = '', classe = '' } = {}) {
     const cols = `p.numero, p.cnj, p.classe, p.orgao, p.assunto, p.advogados, p.partes,
-                  p.n_comunicacoes, p.n_movimentos_tj, p.n_movimentos_mp, p.n_movimentos_pje, p.n_eventos_ia,
+                  p.n_comunicacoes, p.n_movimentos_tj, p.n_movimentos_mp, p.n_movimentos_pje${_djeCol('p.')}, p.n_eventos_ia,
                   p.data_ultima_com, p.data_ultimo_mov`;
     const expr = ftsExpr(busca);
     const where = [];
@@ -211,8 +222,9 @@
   }
 
   function listarMovimentos(numero) {
+    const links = _temCol('movimentos', 'links') ? ', links' : '';
     return query(
-      `SELECT fonte, data_iso, data_original, descricao, detalhe
+      `SELECT fonte, data_iso, data_original, descricao, detalhe${links}
        FROM movimentos WHERE numero_processo = ?
        ORDER BY data_iso DESC, id DESC`,
       [numero]
@@ -300,7 +312,7 @@
   function buscarPorAdvogado(termo) {
     return query(
       `SELECT numero, cnj, classe, orgao, assunto, advogados, partes,
-              n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje, n_eventos_ia,
+              n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje${_djeCol()}, n_eventos_ia,
               data_ultima_com, data_ultimo_mov
        FROM processos
        WHERE advogados LIKE '%' || ? || '%'
@@ -312,7 +324,7 @@
   function buscarDoisAdvogados(termoA, termoB) {
     return query(
       `SELECT numero, cnj, classe, orgao, assunto, advogados, partes,
-              n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje, n_eventos_ia,
+              n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje${_djeCol()}, n_eventos_ia,
               data_ultima_com, data_ultimo_mov
        FROM processos
        WHERE advogados LIKE '%' || ? || '%'
@@ -491,7 +503,7 @@
     const ph = nums.map(() => '?').join(',');
     return query(
       `SELECT numero, cnj, classe, orgao, assunto, advogados, partes,
-              n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje, n_eventos_ia,
+              n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje${_djeCol()}, n_eventos_ia,
               data_ultima_com, data_ultimo_mov
        FROM processos WHERE numero IN (${ph})
        ORDER BY data_ultima_com DESC NULLS LAST`,
@@ -900,7 +912,7 @@
     const expr = ftsExpr(q);
     if (!expr) return [];
     const cols = `p.numero, p.cnj, p.classe, p.orgao, p.assunto, p.advogados, p.partes,
-                  p.n_comunicacoes, p.n_movimentos_tj, p.n_movimentos_mp, p.n_movimentos_pje, p.n_eventos_ia,
+                  p.n_comunicacoes, p.n_movimentos_tj, p.n_movimentos_mp, p.n_movimentos_pje${_djeCol('p.')}, p.n_eventos_ia,
                   p.data_ultima_com, p.data_ultimo_mov`;
     return query(
       `WITH hits AS (
