@@ -648,11 +648,12 @@
   // Partes (linhas cruas da tabela) de um processo — p/ enriquecer o card do detalhe
   function partesDoProcesso(numero) {
     let rows = [];
-    try { rows = query("SELECT nome, documento, nascimento, polo, fonte FROM partes_processo WHERE numero_processo = ? ORDER BY id", [numero]); }
+    const papel = _temCol('partes_processo', 'papel') ? ', papel' : '';
+    try { rows = query(`SELECT nome, documento, nascimento, polo, fonte${papel} FROM partes_processo WHERE numero_processo = ? ORDER BY id`, [numero]); }
     catch (e) { return []; }
     return rows.map((r) => ({
       nome: r.nome, key: _parteKey(r.nome), polo: _poloClasse(r.polo), poloRaw: r.polo,
-      fonte: r.fonte, documento: r.documento, nascimento: r.nascimento,
+      fonte: r.fonte, documento: r.documento, nascimento: r.nascimento, papel: r.papel || '',
     }));
   }
 

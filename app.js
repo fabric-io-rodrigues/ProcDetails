@@ -523,10 +523,12 @@
     grid.append(mainCol, rail);
     v.appendChild(grid);
 
-    const totalMov = (p.n_movimentos_tj || 0) + (p.n_movimentos_pje || 0) + (p.n_movimentos_mp || 0) + (p.n_movimentos_dje || 0);
+    const totalMov = (p.n_movimentos_tj || 0) + (p.n_movimentos_pje || 0) + (p.n_movimentos_mp || 0);
+    const nDiario = p.n_movimentos_dje || 0;
     const tabsDef = [
-      { id: 'tudo',         label: 'Tudo',         n: totalMov + (p.n_comunicacoes || 0) + (p.n_eventos_ia || 0), always: true },
+      { id: 'tudo',         label: 'Tudo',         n: totalMov + nDiario + (p.n_comunicacoes || 0) + (p.n_eventos_ia || 0), always: true },
       { id: 'movimentos',   label: 'Movimentos',   n: totalMov },
+      { id: 'diario',       label: 'Diário',       n: nDiario },
       { id: 'comunicacoes', label: 'Comunicações', n: p.n_comunicacoes || 0 },
       { id: 'eventos',      label: 'Eventos',      n: p.n_eventos_ia || 0 },
     ].filter((t) => t.always || t.n > 0);
@@ -602,6 +604,7 @@
     addFact('Rito', p.desc_rito);
     addFact('Nº MP', p.numero_mp, true);
     addFact('Cód. TJRJ', p.codigo_tjrj, true);
+    addFact('Início', p.data_inicio ? fmtData(p.data_inicio) : null, true);
     addFact('Última com.', fmtData(p.data_ultima_com), true);
     addFact('Último mov.', fmtData(p.data_ultimo_mov), true);
     resumo.appendChild(facts);
@@ -631,7 +634,8 @@
           const tag = el('span', { class: 'parte-tag' });
           tag.appendChild(el('span', { class: 'parte-tag-dot polo-' + x.polo }));
           const parts = [];
-          if (x.polo === 'ativo' || x.polo === 'passivo') parts.push(POLO_LABEL[x.polo]);
+          if (x.papel) parts.push(x.papel);
+          else if (x.polo === 'ativo' || x.polo === 'passivo') parts.push(POLO_LABEL[x.polo]);
           if (x.fonte) parts.push(x.fonte);
           tag.appendChild(el('span', { text: parts.join(' · ') || '—' }));
           row.appendChild(tag);
@@ -782,6 +786,7 @@
     const t = (filtro || '').trim().toLowerCase();
     if (tab === 'tudo') return tabTudo(p, sub, t);
     if (tab === 'movimentos') return tabMovimentos(p, t);
+    if (tab === 'diario') return tabMovimentos(p, t, true);
     if (tab === 'comunicacoes') return tabComunicacoes(p, sub, t);
     return tabEventos(p, t);
   }
@@ -808,10 +813,16 @@
     return tl;
   }
 
-  function tabMovimentos(p, t) {
-    let movs = Services.listarMovimentos(p.numero);
+  const ehDiario = (m) => (m.fonte || '').toUpperCase().includes('DJE');
+
+  // diario=true: só as publicações do DJERJ (aba "Diário"); senão, os demais movimentos
+  function tabMovimentos(p, t, diario = false) {
+    let movs = Services.listarMovimentos(p.numero).filter((m) => ehDiario(m) === diario);
     if (t) movs = movs.filter((m) => movMatch(m, t));
-    if (!movs.length) return emptyState('Sem movimentos', t ? 'Nenhum movimento corresponde à busca.' : 'Este processo não possui movimentos registrados.');
+    if (!movs.length) {
+      if (diario) return emptyState('Sem publicações', t ? 'Nenhuma publicação corresponde à busca.' : 'Nenhuma publicação no DJERJ para este processo.');
+      return emptyState('Sem movimentos', t ? 'Nenhum movimento corresponde à busca.' : 'Este processo não possui movimentos registrados.');
+    }
     const tl = el('div', { class: 'timeline' });
     movs.forEach((m) => { const { card, src } = movCardBody(m); tl.appendChild(tlItem(m.data_iso, src, card)); });
     return tl;
