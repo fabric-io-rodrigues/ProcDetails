@@ -7,7 +7,9 @@
   'use strict';
 
   const SQLJS_CDN = 'https://cdn.jsdelivr.net/npm/sql.js-fts5/dist/';
-  const ENC_URL   = window.PROCDETAILS_ENC_URL || './base_processos.enc';
+  /* A base de cada grupo é publicada como <nomeBase(senha)>.enc — a senha escolhe a base.
+     window.PROCDETAILS_ENC_URL (opcional) força um arquivo fixo (debug). */
+  const ENC_URL_FIXA = window.PROCDETAILS_ENC_URL || '';
 
   /* ----------------------------------------------------------------- AUTH
      precheck() informa que a base sempre precisa de senha.
@@ -41,6 +43,20 @@
       false,
       ['decrypt']
     );
+  }
+
+  /* Nome do arquivo da base: PBKDF2-SHA256("base_" + senha, salt fixo, 100k) → 16 bytes em hex.
+     Mesmos parâmetros de catalogo.nome_base() (NotificacoesTJ/catalogo.py). Custo igual ao da cifra:
+     o nome é público na lista do release, então não pode ser um hash rápido. */
+  async function nomeBase(password) {
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw', new TextEncoder().encode('base_' + password), { name: 'PBKDF2' }, false, ['deriveBits']
+    );
+    const bits = await crypto.subtle.deriveBits(
+      { name: 'PBKDF2', salt: new TextEncoder().encode('procdetails-base'), iterations: 100_000, hash: 'SHA-256' },
+      keyMaterial, 128
+    );
+    return [...new Uint8Array(bits)].map((b) => b.toString(16).padStart(2, '0')).join('') + '.enc';
   }
 
   async function decifrar(encBytes, password) {
@@ -88,8 +104,9 @@
     /* 1. Carregar sql.js */
     const SQL = await initSqlJs({ locateFile: (f) => SQLJS_CDN + f });
 
-    /* 2. Buscar base cifrada com barra de progresso */
-    const encBuf = await fetchWithProgress(ENC_URL, onProgress ? (p) => onProgress(p * 0.6) : null);
+    /* 2. Buscar base cifrada com barra de progresso (sem base com esse nome = senha errada) */
+    const url = ENC_URL_FIXA || './' + await nomeBase(password);
+    const encBuf = await fetchWithProgress(url, onProgress ? (p) => onProgress(p * 0.6) : null);
 
     /* 3. Decifrar (PBKDF2 + AES-256-GCM) */
     if (onProgress) onProgress(0.65);
@@ -112,6 +129,7 @@
 
   async function fetchWithProgress(url, onProgress) {
     const res = await fetch(url);
+    if (res.status === 404 && !ENC_URL_FIXA) throw new Error('SENHA_INCORRETA');
     if (!res.ok) throw new Error('HTTP ' + res.status + ' ao buscar ' + url);
     const total = +(res.headers.get('Content-Length') || 0);
     if (!res.body || !total || !onProgress) {
@@ -209,6 +227,12 @@
        WHERE classe IS NOT NULL AND classe <> ''
        GROUP BY classe ORDER BY n DESC, classe`
     );
+  }
+
+  /* Identificador do grupo (tabela meta, gravada pelo indexar.py); '' em base antiga. */
+  function nomeGrupo() {
+    try { const r = queryOne("SELECT valor FROM meta WHERE chave = 'grupo'"); return r ? r.valor || '' : ''; }
+    catch (e) { return ''; }
   }
 
   function contarProcessos() {
@@ -933,6 +957,8 @@
   /* ----------------------------------------------------------- exporta */
   window.Services = {
     initDB,
+    nomeBase,
+    nomeGrupo,
     precheck,
     verificarSenha,
     listarProcessos,

@@ -30,13 +30,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download base cifrada das releases
+      - name: Download bases cifradas das releases
+        # uma base por grupo (<hash da senha>.enc, ver NotificacoesTJ/catalogo.py)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release download latest \
-            --pattern 'base_processos.enc' \
-            --output base_processos.enc \
+            --pattern '*.enc' \
             || echo "⚠️  Release 'latest' não encontrada — deploy sem base cifrada."
 
       - name: Setup Pages

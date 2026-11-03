@@ -41,7 +41,10 @@ async function runDebug() {
   const pw = document.getElementById('pw').value;
   if (!pw) { step('err', 'Digite a senha primeiro.'); return; }
 
-  const ENC_URL = './base_processos.enc';
+  // mesmo nome do Services.nomeBase(): PBKDF2-SHA256("base_" + senha) → <hex>.enc
+  const _km = await crypto.subtle.importKey('raw', new TextEncoder().encode('base_' + pw), { name: 'PBKDF2' }, false, ['deriveBits']);
+  const _bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: new TextEncoder().encode('procdetails-base'), iterations: 100_000, hash: 'SHA-256' }, _km, 128);
+  const ENC_URL = './' + [...new Uint8Array(_bits)].map(b => b.toString(16).padStart(2, '0')).join('') + '.enc';
   const SQLJS_CDN = 'https://cdn.jsdelivr.net/npm/sql.js-fts5/dist/';
 
   // ── Passo 1: sql.js ─────────────────────────────────────────────────

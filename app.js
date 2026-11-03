@@ -1971,12 +1971,13 @@
       },
     });
     State.total = Services.contarProcessos();
+    State.grupo = Services.nomeGrupo();
     State.classes = Services.listarClasses();
     await carregarFavoritos();
 
     $('#db-status').classList.add('ok');
     $('#db-status-text').textContent = `${State.total.toLocaleString('pt-BR')} processos`;
-    $('#brand-meta').textContent = `${State.total} processos`;
+    $('#brand-meta').textContent = (State.grupo ? State.grupo + ' · ' : '') + `${State.total} processos`;
 
     $('#app').hidden = false;
     $('#splash').classList.add('hide');
