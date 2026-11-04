@@ -189,7 +189,7 @@
     add('tjrj', 'TJRJ', p.n_movimentos_tj);
     add('pje', 'PJe', p.n_movimentos_pje);
     add('mprj', 'MPRJ', p.n_movimentos_mp);
-    add('dje', 'DJERJ', p.n_movimentos_dje);
+    add('dje', 'Diário', p.n_movimentos_dje);   // DJERJ + D.O. Parte III (DOERJ)
     add('evento', 'Evento', p.n_eventos_ia);
     return wrap;
   }
@@ -695,20 +695,20 @@
   }
   function movCardBody(m) {
     const f = (m.fonte || '').toUpperCase();
-    const src = f.includes('DJE') ? 'dje' : f.includes('PJE') ? 'pje' : f.includes('MP') ? 'mprj' : 'tjrj';
+    const src = (f.includes('DJE') || f.includes('DOERJ')) ? 'dje' : f.includes('PJE') ? 'pje' : f.includes('MP') ? 'mprj' : 'tjrj';
     const card = el('div', { class: 'tl-card' });
     const lbl = el('div', { class: 'tl-src ' + src, html: TL_ICON[src] });
     lbl.appendChild(el('span', { text: (src === 'dje' ? 'Diário · ' : 'Movimento · ') + (m.fonte || src.toUpperCase()) }));
     card.appendChild(lbl);
     card.appendChild(el('div', { class: 'tl-desc', text: m.descricao || '—' }));
-    // DJERJ: edição/disponibilização (data_original) + links para a página e o caderno no TJRJ
+    // DJERJ/DOERJ: edição/disponibilização (data_original) + links para a página e o caderno (TJRJ / IOERJ)
     if (src === 'dje' && m.data_original) card.appendChild(el('div', { class: 'tl-sub', text: m.data_original }));
     if (m.detalhe && m.detalhe.trim()) card.appendChild(el('div', { class: 'tl-detail', text: m.detalhe.trim() }));
     let links = [];
     try { links = m.links ? JSON.parse(m.links) : []; } catch (e) { links = []; }
     if (links.length) {
       const acts = el('div', { class: 'tl-links' });
-      links.forEach((l) => acts.appendChild(el('a', { class: 'com-btn', href: l.url, target: '_blank', rel: 'noopener', title: 'Abrir no DJERJ (TJRJ)', html: TL_ICON.ext + `<span>${esc(l.rotulo)}</span>` })));
+      links.forEach((l) => acts.appendChild(el('a', { class: 'com-btn', href: l.url, target: '_blank', rel: 'noopener', title: f.includes('DOERJ') ? 'Abrir no Diário Oficial (IOERJ)' : 'Abrir no DJERJ (TJRJ)', html: TL_ICON.ext + `<span>${esc(l.rotulo)}</span>` })));
       card.appendChild(acts);
     }
     return { card, src };
@@ -813,14 +813,14 @@
     return tl;
   }
 
-  const ehDiario = (m) => (m.fonte || '').toUpperCase().includes('DJE');
+  const ehDiario = (m) => /DJE|DOERJ/.test((m.fonte || '').toUpperCase());   // DJERJ + D.O. Parte III
 
-  // diario=true: só as publicações do DJERJ (aba "Diário"); senão, os demais movimentos
+  // diario=true: só as publicações dos diários — DJERJ e D.O. Parte III (aba "Diário"); senão, os demais movimentos
   function tabMovimentos(p, t, diario = false) {
     let movs = Services.listarMovimentos(p.numero).filter((m) => ehDiario(m) === diario);
     if (t) movs = movs.filter((m) => movMatch(m, t));
     if (!movs.length) {
-      if (diario) return emptyState('Sem publicações', t ? 'Nenhuma publicação corresponde à busca.' : 'Nenhuma publicação no DJERJ para este processo.');
+      if (diario) return emptyState('Sem publicações', t ? 'Nenhuma publicação corresponde à busca.' : 'Nenhuma publicação nos diários (DJERJ / D.O.) para este processo.');
       return emptyState('Sem movimentos', t ? 'Nenhum movimento corresponde à busca.' : 'Este processo não possui movimentos registrados.');
     }
     const tl = el('div', { class: 'timeline' });
