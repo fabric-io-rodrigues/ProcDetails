@@ -320,8 +320,8 @@ select.input { appearance: none; padding-right: 34px;
 /* chips advogados / tags */
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
-  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px;
-  border-radius: 20px; background: var(--surface-2); border: 1px solid var(--line);
+  display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 3px 11px; line-height: 1.3;
+  border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line);
   color: var(--ink-2); font-size: 12.5px; transition: all .12s;
 }
 .chip.click { cursor: pointer; }
@@ -457,6 +457,11 @@ select.input { appearance: none; padding-right: 34px;
 .tl-links { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
 .tl-desc { margin-top: 3px; color: var(--ink); }
 .tl-detail { margin-top: 7px; padding-top: 7px; border-top: 1px dashed var(--line); font-size: 12.5px; color: var(--muted); white-space: pre-wrap; }
+.tl-detail.rico { color: var(--ink-2); line-height: 1.5; }
+.tl-par.bloco { margin-top: 9px; }
+.tl-par.ato { margin-top: 4px; }
+.tl-par .b { font-weight: 600; color: var(--ink); }
+.tl-par .k { color: var(--muted); }
 
 /* comunicações */
 .com-list { display: flex; flex-direction: column; gap: 12px; }
@@ -646,9 +651,10 @@ select.input { appearance: none; padding-right: 34px;
 
 /* partes identificadas (detalhe do processo): nome + tag «Polo · fonte» */
 .parte-ident { display: flex; flex-direction: column; gap: 2px; }
-.parte-row { display: flex; align-items: baseline; gap: 8px; padding: 4px 6px; }
-.parte-nome { flex: 1; min-width: 0; font-size: 13px; line-height: 1.4; }
-.parte-tag { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--muted); font-family: var(--mono); white-space: nowrap; }
+.parte-row { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; margin: 0 -8px; }
+.parte-nome { min-width: 0; font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
+.parte-tag { display: flex; align-items: center; gap: 6px; font-size: 10.5px; line-height: 1.4; color: var(--muted); font-family: var(--mono); }
+.parte-mais { padding: 6px 0 0; font-size: 12px; color: var(--muted); }
 .parte-tag-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--faint); }
 .parte-tag-dot.polo-ativo { background: var(--tjrj); }
 .parte-tag-dot.polo-passivo { background: var(--mprj); }
@@ -920,11 +926,12 @@ select.input { appearance: none; padding-right: 34px;
 
   /* alvos de toque maiores */
   .btn, .toggle { height: 42px; }
+  .btn.icon { width: 42px; }
   /* font-size >= 16px evita o auto-zoom do iOS ao focar o campo (reforça o
      maximum-scale=1 do viewport, que sozinho já desativa o pinch-zoom) */
   .input { height: 44px; font-size: 16px; }
   .tag-input-field { font-size: 16px; }
-  .chip { height: 32px; }
+  .chip { min-height: 32px; }
 
   /* comunicação: título + ações na linha 1, ações quebram se faltar espaço */
   .com-head { flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 11px 14px 4px; }

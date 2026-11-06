@@ -591,26 +591,22 @@
 
     const actions = el('div', { class: 'dh-actions' });
     const favOn = State.favSet.has(p.numero);
-    const favBtn = el('button', { class: 'btn' + (favOn ? ' active' : '') });
-    favBtn.innerHTML = `<svg class="ico" viewBox="0 0 20 20" fill="${favOn ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M10 2.6l2.2 4.5 5 .7-3.6 3.5.9 5-4.5-2.4L5.5 16.8l.9-5L2.8 8.3l5-.7z"/></svg> <span>${favOn ? 'Favoritado' : 'Favoritar'}</span>`;
-    const tagBtn = el('button', { class: 'btn', html: '<svg class="ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3h6l8 8-6 6-8-8V3z" stroke-linejoin="round"/><circle cx="6.5" cy="6.5" r="1.2" fill="currentColor"/></svg> <span>Tags</span>' });
-    const printBtn = el('button', { class: 'btn icon', title: 'Imprimir', html: '<svg class="ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 8V3h8v5M6 14H4v-4h12v4h-2M6 12h8v5H6z"/></svg>' });
-    printBtn.addEventListener('click', () => window.print());
-    const resumoBtn = el('button', { class: 'btn', title: 'Resumo do processo em PDF', html: '<svg class="ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M5 2.5h7l3.5 3.5v11.5H5z"/><path d="M12 2.5V6h3.5M7.5 10h5M7.5 13h5"/></svg> <span>Resumo</span>' });
+    const favBtn = el('button', { class: 'btn icon' + (favOn ? ' active' : ''), title: favOn ? 'Favoritado' : 'Favoritar', 'aria-label': 'Favoritar' });
+    favBtn.innerHTML = `<svg class="ico" viewBox="0 0 20 20" fill="${favOn ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M10 2.6l2.2 4.5 5 .7-3.6 3.5.9 5-4.5-2.4L5.5 16.8l.9-5L2.8 8.3l5-.7z"/></svg>`;
+    const marcarFav = (on) => { favBtn.classList.toggle('active', on); favBtn.querySelector('svg').setAttribute('fill', on ? 'currentColor' : 'none'); favBtn.title = on ? 'Favoritado' : 'Favoritar'; };
+    const tagBtn = el('button', { class: 'btn icon', title: 'Tags', 'aria-label': 'Tags', html: '<svg class="ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3h6l8 8-6 6-8-8V3z" stroke-linejoin="round"/><circle cx="6.5" cy="6.5" r="1.2" fill="currentColor"/></svg>' });
+    const resumoBtn = el('button', { class: 'btn icon', title: 'Resumo do processo (PDF)', 'aria-label': 'Resumo do processo (PDF)', html: '<svg class="ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M5 2.5h7l3.5 3.5v11.5H5z"/><path d="M12 2.5V6h3.5M7.5 10h5M7.5 13h5"/></svg>' });
     resumoBtn.addEventListener('click', () => gerarResumo(p));
     favBtn.addEventListener('click', async () => {
       await toggleFav(p, null);
-      const on = State.favSet.has(p.numero);
-      favBtn.classList.toggle('active', on);
-      favBtn.querySelector('svg').setAttribute('fill', on ? 'currentColor' : 'none');
-      favBtn.querySelector('span').textContent = on ? 'Favoritado' : 'Favoritar';
+      marcarFav(State.favSet.has(p.numero));
       renderTagCard();
     });
     tagBtn.addEventListener('click', () => {
-      if (!State.favSet.has(p.numero)) { toggleFav(p, null).then(() => { favBtn.classList.add('active'); favBtn.querySelector('svg').setAttribute('fill','currentColor'); favBtn.querySelector('span').textContent='Favoritado'; openTags(p); }); }
+      if (!State.favSet.has(p.numero)) { toggleFav(p, null).then(() => { marcarFav(true); openTags(p); }); }
       else openTags(p);
     });
-    actions.append(favBtn, tagBtn, resumoBtn, printBtn);
+    actions.append(favBtn, tagBtn, resumoBtn);
     main.appendChild(actions);
     head.appendChild(main);
     v.appendChild(head);
@@ -694,7 +690,7 @@
     }
 
     const resumo = el('div', { class: 'rail-card' });
-    resumo.appendChild(el('h4', { text: 'Resumo do processo' }));
+    resumo.appendChild(el('h4', { text: 'Dados do processo' }));
     const facts = el('div', { class: 'rail-facts' });
     const addFact = (k, val, mono) => { if (!val) return; const f = el('div', { class: 'rail-fact' }); f.appendChild(el('span', { class: 'k', text: k })); f.appendChild(el('span', { class: 'v' + (mono ? ' mono' : ''), text: val })); facts.appendChild(f); };
     addFact('Órgão', p.orgao);
@@ -719,58 +715,33 @@
     const pessoas = Services.partesDoProcesso(p.numero);
     const ident = pessoas.filter((x) => x.tipo === 'parte')
       .sort((a, b) => (ordem[a.polo] - ordem[b.polo]) || a.nome.localeCompare(b.nome, 'pt'));
-    if (ident.length) {
+    // nome em largura total; papel/fontes/OAB na linha de baixo
+    function cardPessoas(titulo, lista, href, meta, polo) {
+      if (!lista.length) return;
       const card = el('div', { class: 'rail-card' });
-      card.appendChild(el('h4', { text: `Partes (${ident.length})` }));
+      card.appendChild(el('h4', { text: `${titulo} (${lista.length})` }));
       const wrap = el('div', { class: 'parte-ident' });
-      ident.forEach((x) => {
+      lista.slice(0, 16).forEach((x) => {
         const row = el('div', { class: 'parte-row polo-parte-link' });
-        row.addEventListener('click', () => go('#/partes?q=' + encodeURIComponent(x.nome)));
+        row.addEventListener('click', () => go(href + encodeURIComponent(x.nome)));
         row.appendChild(el('span', { class: 'parte-nome', text: x.nome }));
-        const tag = el('span', { class: 'parte-tag' });
-        tag.appendChild(el('span', { class: 'parte-tag-dot polo-' + x.polo }));
-        const parts = [];
-        if (x.papel) parts.push(x.papel);
-        else if (x.polo === 'ativo' || x.polo === 'passivo') parts.push(POLO_LABEL[x.polo]);
-        if (x.fontes) parts.push(x.fontes);
-        tag.appendChild(el('span', { text: parts.join(' · ') || '—' }));
-        row.appendChild(tag);
+        const txt = meta(x);
+        if (txt) {
+          const tag = el('span', { class: 'parte-tag' });
+          if (polo) tag.appendChild(el('span', { class: 'parte-tag-dot polo-' + x.polo }));
+          tag.appendChild(el('span', { text: txt }));
+          row.appendChild(tag);
+        }
         wrap.appendChild(row);
       });
+      if (lista.length > 16) wrap.appendChild(el('div', { class: 'parte-mais', text: `+${lista.length - 16}` }));
       card.appendChild(wrap);
       rail.appendChild(card);
     }
-
-    const juizes = pessoas.filter((x) => x.tipo === 'juiz');
-    if (juizes.length) {
-      const card = el('div', { class: 'rail-card' });
-      card.appendChild(el('h4', { text: `Juízes (${juizes.length})` }));
-      const chips = el('div', { class: 'chips' });
-      juizes.forEach((x) => {
-        const c = el('span', { class: 'chip click', text: x.nome, title: [x.papel, x.fontes].filter(Boolean).join(' · ') });
-        c.addEventListener('click', () => go('#/partes?q=' + encodeURIComponent(x.nome)));
-        chips.appendChild(c);
-      });
-      card.appendChild(chips);
-      rail.appendChild(card);
-    }
-
-    const advs = parseAdvogados(p.advogados);
-    if (advs.length) {
-      const card = el('div', { class: 'rail-card' });
-      card.appendChild(el('h4', { text: `Advogados (${advs.length})` }));
-      const chips = el('div', { class: 'chips' });
-      advs.slice(0, 16).forEach((a) => {
-        const c = el('span', { class: 'chip click' });
-        c.appendChild(el('span', { text: a.nome }));
-        if (a.oab) c.appendChild(el('span', { class: 'oab', text: a.oab.replace(/^OAB[\s/]*/i, '') }));
-        c.addEventListener('click', () => go(`#/advogado?q=${encodeURIComponent(a.nome)}`));
-        chips.appendChild(c);
-      });
-      if (advs.length > 16) chips.appendChild(el('span', { class: 'chip', text: `+${advs.length - 16}` }));
-      card.appendChild(chips);
-      rail.appendChild(card);
-    }
+    const metaPessoa = (x) => [x.papel || ((x.polo === 'ativo' || x.polo === 'passivo') ? POLO_LABEL[x.polo] : ''), x.fontes].filter(Boolean).join(' · ');
+    cardPessoas('Partes', ident, '#/partes?q=', (x) => metaPessoa(x) || '—', true);
+    cardPessoas('Juízes', pessoas.filter((x) => x.tipo === 'juiz'), '#/partes?q=', metaPessoa);
+    cardPessoas('Advogados', parseAdvogados(p.advogados), '#/advogado?q=', (a) => (a.oab ? 'OAB ' + a.oab.replace(/^OAB[\s/]*/i, '') : ''));
   }
 
   /* ---- ícones e helpers da linha do tempo ---- */
@@ -811,7 +782,7 @@
     // DJERJ/DOERJ: edição/disponibilização (data_original) + links para a página e o caderno (TJRJ / IOERJ)
     if (src === 'dje' && m.data_original) card.appendChild(el('div', { class: 'tl-sub', text: m.data_original }));
     else if (f === 'TJRJ' && m.data_original && fmtData(m.data_iso) !== m.data_original) card.appendChild(el('div', { class: 'tl-sub', text: 'Registrado em ' + m.data_original }));
-    if (m.detalhe && m.detalhe.trim()) card.appendChild(el('div', { class: 'tl-detail', text: m.detalhe.trim() }));
+    if (m.detalhe && m.detalhe.trim()) card.appendChild(src === 'dje' ? el('div', { class: 'tl-detail', text: m.detalhe.trim() }) : detalheRico(m.detalhe));
     let links = [];
     try { links = m.links ? JSON.parse(m.links) : []; } catch (e) { links = []; }
     if (links.length) {
@@ -820,6 +791,16 @@
       card.appendChild(acts);
     }
     return { card, src };
+  }
+  // título do item em negrito, rótulo apagado e valor; texto de ato com rótulo em negrito (mesma regra do PDF)
+  function detalheRico(texto) {
+    const box = el('div', { class: 'tl-detail rico' });
+    Resumo.paragrafosTjrj(texto).forEach((par) => {
+      const d = el('div', { class: 'tl-par' + (par.antes > 1 ? ' bloco' : par.antes ? ' ato' : '') });
+      par.runs.forEach((r) => d.appendChild(el('span', r.b ? { class: 'b', text: r.t } : r.c ? { class: 'k', text: r.t } : { text: r.t })));
+      box.appendChild(d);
+    });
+    return box;
   }
   function evCardBody(e) {
     const future = (diffDias(e.data_iso) || -1) >= 0;

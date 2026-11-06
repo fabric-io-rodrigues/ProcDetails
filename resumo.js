@@ -397,5 +397,5 @@
     doc.save(`Resumo_${d.cnj}.pdf`);
   }
 
-  window.Resumo = { gerar };
+  window.Resumo = { gerar, paragrafosTjrj: detalheTjrj };
 })();
