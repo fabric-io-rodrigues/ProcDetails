@@ -272,6 +272,15 @@
     return b;
   }
 
+  function linhasProc(p) {
+    const c = Services.cabecalhoProcesso(p);
+    const loc = [c.tribunal, c.local].filter(Boolean).join(' · ');
+    const main = c.titulo || p.classe || '—';
+    const sub = [loc, c.titulo ? p.classe : p.orgao].filter(Boolean).join(' · ');
+    const tip = [c.titulo, p.classe, p.orgao].filter(Boolean).join('\n');
+    return { main, sub, tip, segredo: c.segredo, loc, titulo: c.titulo };
+  }
+
   /* ====================== render lista de processos ==================== */
   function renderListaProcessos(rows, container, opts = {}) {
     container.innerHTML = '';
@@ -296,7 +305,7 @@
     t.innerHTML = `<thead><tr>
       <th class="col-star"></th>
       <th>Processo (CNJ)</th>
-      <th>Classe / Órgão</th>
+      <th>Partes / Local</th>
       <th>Atividade</th>
       <th>Última mov.</th>
     </tr></thead>`;
@@ -307,8 +316,10 @@
       const tdStar = el('td', { class: 'col-star' }); tdStar.appendChild(starBtn(p));
       const tdCnj = el('td', {}, el('span', { class: 'cnj', text: fmtCNJ(p.numero, p.cnj) }));
       const tdCls = el('td');
-      tdCls.appendChild(el('div', { class: 'cell-classe', text: p.classe || '—' }));
-      tdCls.appendChild(el('div', { class: 'cell-sub', text: p.orgao || '' }));
+      const lp = linhasProc(p);
+      tdCls.title = lp.tip;
+      tdCls.appendChild(el('div', { class: 'cell-classe' + (lp.segredo ? ' segredo' : ''), text: lp.main }));
+      tdCls.appendChild(el('div', { class: 'cell-sub', text: lp.sub }));
       const tdAct = el('td', {}, badgesProc(p));
       const tdDate = el('td');
       const dt = el('span', { class: 'cell-date' });
@@ -332,8 +343,10 @@
       top.appendChild(el('span', { class: 'cnj', text: fmtCNJ(p.numero, p.cnj) }));
       const s = starBtn(p); top.appendChild(s);
       c.appendChild(top);
-      c.appendChild(el('div', { class: 'pc-classe', text: p.classe || '—' }));
-      c.appendChild(el('div', { class: 'pc-org', text: p.orgao || '' }));
+      const lp = linhasProc(p);
+      c.title = lp.tip;
+      c.appendChild(el('div', { class: 'pc-classe' + (lp.segredo ? ' segredo' : ''), text: lp.main }));
+      c.appendChild(el('div', { class: 'pc-org', text: lp.sub }));
       const foot = el('div', { class: 'pc-foot' });
       foot.appendChild(badgesProc(p));
       foot.appendChild(el('span', { class: 'pc-date', text: fmtData(p.data_ultima_com || p.data_ultimo_mov) }));
@@ -352,8 +365,10 @@
       r.appendChild(st);
       r.appendChild(el('span', { class: 'cnj', text: fmtCNJ(p.numero, p.cnj) }));
       const mid = el('div', { class: 'crow-mid' });
-      mid.appendChild(el('div', { class: 't', text: p.classe || '—' }));
-      mid.appendChild(el('div', { class: 's', text: p.orgao || '' }));
+      const lp = linhasProc(p);
+      mid.title = lp.tip;
+      mid.appendChild(el('div', { class: 't' + (lp.segredo ? ' segredo' : ''), text: lp.main }));
+      mid.appendChild(el('div', { class: 's', text: lp.sub }));
       r.appendChild(mid);
       r.appendChild(badgesProc(p));
       r.appendChild(el('span', { class: 'cell-date', text: fmtData(p.data_ultima_com || p.data_ultimo_mov) }));
@@ -485,10 +500,12 @@
     const main = el('div', { class: 'dh-main' });
     const title = el('div', { class: 'dh-title' });
     title.appendChild(el('div', { class: 'dh-cnj', text: fmtCNJ(p.numero, p.cnj) }));
+    const lp = linhasProc(p);
+    if (lp.titulo) title.appendChild(el('div', { class: 'dh-partes' + (lp.segredo ? ' segredo' : ''), text: lp.titulo }));
     title.appendChild(el('div', { class: 'dh-classe', text: p.classe || '—' }));
     const dmeta = el('div', { class: 'dh-meta' });
-    if (p.orgao) dmeta.appendChild(el('span', { text: p.orgao }));
-    if (p.assunto) dmeta.appendChild(el('span', { text: '· ' + p.assunto }));
+    const itens = [lp.loc, p.orgao, p.assunto].filter(Boolean);
+    itens.forEach((t, i) => dmeta.appendChild(el('span', { text: (i ? '· ' : '') + t })));
     title.appendChild(dmeta);
     main.appendChild(title);
 
@@ -1594,8 +1611,10 @@
         const delB = el('button', { class: 'btn sm', text: 'Remover' });
         acts.append(tagB, delB); top2.appendChild(acts);
         card.appendChild(top2);
-        card.appendChild(el('div', { class: 'pc-classe', text: p.classe || '—' }));
-        card.appendChild(el('div', { class: 'pc-org', text: p.orgao || '' }));
+        const lp = linhasProc(p);
+        card.title = lp.tip;
+        card.appendChild(el('div', { class: 'pc-classe' + (lp.segredo ? ' segredo' : ''), text: lp.main }));
+        card.appendChild(el('div', { class: 'pc-org', text: lp.sub }));
         const foot = el('div', { class: 'pc-foot' });
         foot.appendChild(badgesProc(p));
         foot.appendChild(el('span', { class: 'pc-date', text: fmtData(p.data_ultima_com || p.data_ultimo_mov) }));

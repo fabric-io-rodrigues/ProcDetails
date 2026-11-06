@@ -431,6 +431,58 @@
       });
   }
 
+  const _PAPEL_FORA = /perito|procurador|representante|administrador/i;
+  const _SIGLAS = new Set(['ME', 'EPP', 'EIRELI', 'CEF']);
+
+  let _cabecalhos = null;
+  function _buildCabecalhos() {
+    const lados = new Map();
+    for (const r of query('SELECT numero_processo AS np, nome, polo, fonte, papel FROM partes_processo ORDER BY id')) {
+      if (_PAPEL_FORA.test(r.papel || '')) continue;
+      let lado = _poloClasse(r.polo);
+      if (lado === 'outro') { if (!/inventariad/i.test(r.papel || '')) continue; lado = 'espolio'; }
+      if (!lados.has(r.np)) lados.set(r.np, { ativo: [], passivo: [], espolio: [] });
+      lados.get(r.np)[lado].push(r);
+    }
+    const locs = new Map();
+    const nota = (r) => (r.grau === '1g' ? 2 : 0) + (r.comarca ? 1 : 0);
+    for (const r of query(`SELECT c.numero_processo AS np, l.comarca, l.cidade, l.uf, l.grau, COUNT(*) AS n
+                           FROM comunicacoes c JOIN orgaos_localizacao l ON l.id_orgao = c.id_orgao
+                           GROUP BY c.numero_processo, l.id_orgao`)) {
+      const cur = locs.get(r.np);
+      if (!cur || nota(r) > nota(cur) || (nota(r) === nota(cur) && r.n > cur.n)) locs.set(r.np, r);
+    }
+    const comarcas = new Map(query("SELECT numero, comarca FROM processos WHERE comarca <> ''").map((r) => [r.numero, r.comarca]));
+    _cabecalhos = { lados, locs, comarcas };
+  }
+
+  function _ladoNome(rows) {
+    const tj = rows.filter((r) => r.fonte === 'TJRJ');
+    const nomes = [...new Map((tj.length ? tj : rows).map((r) => [_parteKey(r.nome), r.nome])).values()];
+    if (!nomes.length) return '';
+    return _titulo(nomes[0]) + (nomes.length > 1 ? ' e outros' : '');
+  }
+
+  function _lugar(comarca, cidade) {
+    const s = String(comarca || '').replace(/^(foro regional|regional|comarca|foro|subse[çc][ãa]o judici[áa]ria)\s+(d[aeo]s?\s+)?/i, '').trim();
+    return !s || /^(capital|central)/i.test(s) ? cidade || s : s;
+  }
+
+  function cabecalhoProcesso(p) {
+    if (!_cabecalhos) _buildCabecalhos();
+    const L = _cabecalhos.lados.get(p.numero);
+    const a = L ? _ladoNome(L.ativo) : '';
+    let b = L ? _ladoNome(L.passivo) : '';
+    if (!b && L && L.espolio.length) b = 'Espólio de ' + _ladoNome(L.espolio);
+    const segredo = !a && !b && /segredo|sigilo/i.test(p.partes || '');
+    const titulo = segredo ? 'Segredo de justiça' : [a, b].filter(Boolean).join(' x ');
+    const tribunal = tribunalCNJ(p.numero);
+    const loc = _cabecalhos.locs.get(p.numero) || {};
+    const uf = loc.uf || (tribunal.startsWith('TJ') ? tribunal.slice(2) : '');
+    const lugar = _lugar(_cabecalhos.comarcas.get(p.numero) || loc.comarca, loc.cidade);
+    return { titulo, segredo, tribunal, local: lugar && [lugar, uf].filter(Boolean).join(', ') };
+  }
+
   /* --------------------------------------------- índice de partes (pessoas)
    * Fonte: tabela partes_processo (nome, documento, nascimento, polo, fonte).
    * Identidade = nome normalizado (sem acento/caixa/espaços) — documento e
@@ -858,14 +910,19 @@
    * para a cidade e, na falta de ambas, repete o tribunal (nunca fica nulo). */
 
   // "COMARCA DA CAPITAL" → "Comarca da Capital" (só embeleza o que vier em CAIXA ALTA)
-  const _MINUS = new Set(['da', 'de', 'do', 'das', 'dos', 'e', 'em', 'a', 'o']);
+  const _MINUS = new Set(['da', 'de', 'do', 'das', 'dos', 'e', 'em', 'a', 'o', 'na', 'no', 'para', 'por', 'com']);
   function _titulo(s) {
     s = String(s || '').trim();
-    if (!s) return s;
-    if (s !== s.toUpperCase()) return s;
-    return s.toLowerCase().replace(/\b([a-zà-ú]+)/g, (w, _g, i) =>
-      (i > 0 && _MINUS.has(w)) ? w : w.charAt(0).toUpperCase() + w.slice(1)
-    );
+    if (!s || /[a-z]/.test(s.replace(/[^A-Za-z]/g, ''))) return s;
+    const ws = s.replace(/\s+/g, ' ').replace(/(^|\s)S ?[ ./]? ?A\.?(?=\s|$)/gi, '$1S/A').split(' ');
+    return ws.map((w, i) => {
+      const sem = w.normalize('NFD').replace(/[^A-Za-z]/g, '');
+      if (w === 'S/A' || /^([A-Z]\.){2,}[A-Z]?\.?$/.test(w) || _SIGLAS.has(sem) || (sem.length > 1 && !/[AEIOUY]/.test(sem))
+        || (/^[A-Z]{3,6}$/.test(w) && i === ws.length - 1 && ws[i - 1] === '-')) return w;
+      const lw = w.toLowerCase();
+      if (i > 0 && _MINUS.has(lw)) return lw;
+      return lw.replace(/(^|[-'(])(\p{L})/gu, (m, a, c) => a + c.toUpperCase());
+    }).join(' ');
   }
 
   function atuacaoHierarquia(nome) {
@@ -962,6 +1019,7 @@
     precheck,
     verificarSenha,
     listarProcessos,
+    cabecalhoProcesso,
     listarClasses,
     contarProcessos,
     obterProcesso,
