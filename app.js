@@ -712,7 +712,7 @@
   }
   function movCardBody(m) {
     const f = (m.fonte || '').toUpperCase();
-    const src = (f.includes('DJE') || f.includes('DOERJ')) ? 'dje' : f.includes('PJE') ? 'pje' : f.includes('MP') ? 'mprj' : 'tjrj';
+    const src = ehDiario(m) ? 'dje' : f.includes('PJE') ? 'pje' : f.includes('MP') ? 'mprj' : 'tjrj';
     const card = el('div', { class: 'tl-card' });
     const lbl = el('div', { class: 'tl-src ' + src, html: TL_ICON[src] });
     lbl.appendChild(el('span', { text: (src === 'dje' ? 'Diário · ' : 'Movimento · ') + (m.fonte || src.toUpperCase()) }));
@@ -725,7 +725,7 @@
     try { links = m.links ? JSON.parse(m.links) : []; } catch (e) { links = []; }
     if (links.length) {
       const acts = el('div', { class: 'tl-links' });
-      links.forEach((l) => acts.appendChild(el('a', { class: 'com-btn', href: l.url, target: '_blank', rel: 'noopener', title: f.includes('DOERJ') ? 'Abrir no Diário Oficial (IOERJ)' : 'Abrir no DJERJ (TJRJ)', html: TL_ICON.ext + `<span>${esc(l.rotulo)}</span>` })));
+      links.forEach((l) => acts.appendChild(el('a', { class: 'com-btn', href: l.url, target: '_blank', rel: 'noopener', title: f.includes('DOMPRJ') ? 'Abrir no Diário Oficial (MPRJ)' : f.includes('DOERJ') ? 'Abrir no Diário Oficial (IOERJ)' : 'Abrir no DJERJ (TJRJ)', html: TL_ICON.ext + `<span>${esc(l.rotulo)}</span>` })));
       card.appendChild(acts);
     }
     return { card, src };
@@ -830,7 +830,7 @@
     return tl;
   }
 
-  const ehDiario = (m) => /DJE|DOERJ/.test((m.fonte || '').toUpperCase());   // DJERJ + D.O. Parte III
+  const ehDiario = (m) => /DJE|DOERJ|DOMPRJ/.test((m.fonte || '').toUpperCase());   // DJERJ + D.O. Parte III + DO-MPRJ
 
   // diario=true: só as publicações dos diários — DJERJ e D.O. Parte III (aba "Diário"); senão, os demais movimentos
   function tabMovimentos(p, t, diario = false) {
