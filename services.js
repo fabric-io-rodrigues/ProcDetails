@@ -449,7 +449,7 @@
   let _cabecalhos = null;
   function _buildCabecalhos() {
     const lados = new Map();
-    for (const r of query('SELECT numero_processo AS np, nome, polo, fonte, papel FROM partes_processo ORDER BY id')) {
+    for (const r of query("SELECT numero_processo AS np, nome, polo, fontes, papel FROM partes_processo WHERE tipo = 'parte' ORDER BY id")) {
       if (_PAPEL_FORA.test(r.papel || '')) continue;
       let lado = _poloClasse(r.polo);
       if (lado === 'outro') { if (!/inventariad/i.test(r.papel || '')) continue; lado = 'espolio'; }
@@ -469,7 +469,7 @@
   }
 
   function _ladoNome(rows) {
-    const tj = rows.filter((r) => r.fonte === 'TJRJ');
+    const tj = rows.filter((r) => /TJRJ/.test(r.fontes));
     const nomes = [...new Map((tj.length ? tj : rows).map((r) => [_parteKey(r.nome), r.nome])).values()];
     if (!nomes.length) return '';
     return _titulo(nomes[0]) + (nomes.length > 1 ? ' e outros' : '');
@@ -495,10 +495,10 @@
     return { titulo, segredo, tribunal, local: lugar && [lugar, uf].filter(Boolean).join(', ') };
   }
 
-  /* --------------------------------------------- índice de partes (pessoas)
-   * Fonte: tabela partes_processo (nome, documento, nascimento, polo, fonte).
+  /* --------------------------------------------- índice de pessoas
+   * Fonte: tabela partes_processo (partes, advogados e juízes).
    * Identidade = nome normalizado (sem acento/caixa/espaços) — documento e
-   * nascimento ficam só nos "detalhes", não agrupam. */
+   * nascimento ficam só nos "detalhes", não agrupam. Conexões só entre partes. */
   let _partesIndex = null;
   function _parteKey(nome) {
     return String(nome || '')
@@ -514,41 +514,40 @@
     return 'outro';
   }
   function _buildPartesIndex() {
-    let rows = [];
-    try {
-      rows = query("SELECT numero_processo AS np, nome, documento, nascimento, polo, fonte FROM partes_processo");
-    } catch (e) {
-      _partesIndex = { pinfo: new Map(), procToPartes: new Map() };
-      return;
-    }
+    const rows = query('SELECT numero_processo AS np, nome, tipo, polo, papel, documento, nascimento, oab, fontes FROM partes_processo');
     const pinfo = new Map();         // key -> rec
     const procToPartes = new Map();  // numero -> [{key, polo}]
+    const conta = (m, v) => { if (v) m.set(v, (m.get(v) || 0) + 1); };
     for (const r of rows) {
       const k = _parteKey(r.nome);
       if (!k || k.length < 2) continue;
       let rec = pinfo.get(k);
       if (!rec) {
-        rec = { key: k, numeros: new Set(), poloByProc: new Map(), docs: new Set(), nascimentos: new Set(), fontes: new Set(), nomes: new Map() };
+        rec = { key: k, numeros: new Set(), poloByProc: new Map(), tipos: new Set(), papeis: new Map(), docs: new Set(), oabs: new Set(), nascimentos: new Set(), fontes: new Set(), nomes: new Map() };
         pinfo.set(k, rec);
       }
       rec.numeros.add(r.np);
+      rec.tipos.add(r.tipo);
+      conta(rec.papeis, r.papel);
+      conta(rec.nomes, r.nome);
+      if (r.documento) rec.docs.add(r.documento);
+      if (r.oab) rec.oabs.add(r.oab);
+      if (r.nascimento) rec.nascimentos.add(r.nascimento);
+      (r.fontes || '').split(', ').filter(Boolean).forEach((f) => rec.fontes.add(f));
+      if (r.tipo !== 'parte') continue;
       const cls = _poloClasse(r.polo);
       // mantém o polo mais informativo para o processo (evita sobrescrever ativo/passivo por 'outro')
       if (!rec.poloByProc.has(r.np) || (rec.poloByProc.get(r.np) === 'outro' && cls !== 'outro')) rec.poloByProc.set(r.np, cls);
-      if (r.documento) rec.docs.add(r.documento);
-      if (r.nascimento) rec.nascimentos.add(r.nascimento);
-      if (r.fonte) rec.fontes.add(r.fonte);
-      rec.nomes.set(r.nome, (rec.nomes.get(r.nome) || 0) + 1);
       let arr = procToPartes.get(r.np);
       if (!arr) { arr = []; procToPartes.set(r.np, arr); }
       const ex = arr.find((x) => x.key === k);
       if (!ex) arr.push({ key: k, polo: cls });
       else if (ex.polo === 'outro' && cls !== 'outro') ex.polo = cls;
     }
+    const maisFrequente = (m) => { let best = '', bc = -1; for (const [v, c] of m) if (c > bc) { bc = c; best = v; } return best; };
     for (const rec of pinfo.values()) {
-      let best = '', bc = -1;
-      for (const [nm, c] of rec.nomes) if (c > bc) { bc = c; best = nm; }
-      rec.nome = best;
+      rec.nome = maisFrequente(rec.nomes);
+      rec.papel = maisFrequente(rec.papeis);
     }
     _partesIndex = { pinfo, procToPartes };
   }
@@ -562,10 +561,14 @@
     return 'outro';
   }
 
-  function listarPartes() {
+  function listarPartes(tipo = 'parte') {
     const { pinfo } = _ensurePartes();
     return [...pinfo.values()]
-      .map((r) => ({ nome: r.nome, key: r.key, n: r.numeros.size, polo: _poloDominante(r), temDoc: r.docs.size > 0 }))
+      .filter((r) => r.tipos.has(tipo))
+      .map((r) => ({
+        nome: r.nome, key: r.key, n: r.numeros.size, polo: _poloDominante(r), papel: r.papel,
+        documento: [...r.docs, ...r.oabs].join(', '), nascimento: [...r.nascimentos].join(', '), fontes: [...r.fontes].join(', '),
+      }))
       .sort((a, b) => b.n - a.n || a.nome.localeCompare(b.nome, 'pt'));
   }
   function statsPartes() { const { pinfo } = _ensurePartes(); return { total: pinfo.size }; }
@@ -578,7 +581,7 @@
     for (const c of rec.poloByProc.values()) polos[c]++;
     return {
       nome: rec.nome, key: rec.key, n: rec.numeros.size,
-      documentos: [...rec.docs], nascimentos: [...rec.nascimentos],
+      documentos: [...rec.docs], oabs: [...rec.oabs], nascimentos: [...rec.nascimentos], papeis: [...rec.papeis.keys()],
       fontes: [...rec.fontes], polos, polo: _poloDominante(rec),
     };
   }
@@ -733,20 +736,12 @@
     }).sort((a, b) => b.n_total - a.n_total || a.nome.localeCompare(b.nome, 'pt'));
   }
 
-  // Partes (linhas cruas da tabela) de um processo — p/ enriquecer o card do detalhe
+  // Pessoas (linhas cruas da tabela) de um processo — p/ o card do detalhe
   function partesDoProcesso(numero) {
-    let rows = [];
-    const papel = _temCol('partes_processo', 'papel') ? ', papel' : '';
-    try { rows = query(`SELECT nome, documento, nascimento, polo, fonte${papel} FROM partes_processo WHERE numero_processo = ? ORDER BY id`, [numero]); }
-    catch (e) { return []; }
-    return rows.map((r) => ({
-      nome: r.nome, key: _parteKey(r.nome), polo: _poloClasse(r.polo), poloRaw: r.polo,
-      fonte: r.fonte, documento: r.documento, nascimento: r.nascimento, papel: r.papel || '',
-    }));
+    return query('SELECT nome, tipo, polo, papel, fontes FROM partes_processo WHERE numero_processo = ? ORDER BY id', [numero])
+      .map((r) => ({ nome: r.nome, key: _parteKey(r.nome), tipo: r.tipo, polo: _poloClasse(r.polo), papel: r.papel || '', fontes: r.fontes || '' }));
   }
 
-  // normalizador público (p/ casar nomes da string antiga com a tabela)
-  function keyPessoa(nome) { return _parteKey(nome); }
 
   /* ----------------------------------- 5. Grafo completo de relações */
   /**
@@ -1085,6 +1080,5 @@
     partesComunsAdvogados,
     advogadosComunsDaParte,
     partesDoProcesso,
-    keyPessoa,
   };
 })();

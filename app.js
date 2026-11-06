@@ -173,13 +173,6 @@
       return m ? { nome: m[1].trim(), oab: m[2].trim() } : { nome: s, oab: '' };
     });
   }
-  function parsePartes(str) {
-    if (!str) return [];
-    return str.split('|').map((s) => s.trim()).filter(Boolean).map((s) => {
-      const m = s.match(/^(.*?)\s*\(([^)]*)\)\s*$/);
-      return m ? { nome: m[1].trim(), polo: m[2].trim() } : { nome: s, polo: '' };
-    });
-  }
 
   /* ------------------------------ badges ------------------------------- */
   function badgesProc(p) {
@@ -690,41 +683,44 @@
     renderTagCard();
     rail.appendChild(tagCard);
 
-    // Partes: identificadas (tabela partes_processo, com polo+fonte) acima; demais (string) abaixo
-    const identP = Services.partesDoProcesso(p.numero);
-    const partesStr = parsePartes(p.partes);
-    if (identP.length || partesStr.length) {
+    // Pessoas (tabela partes_processo): partes aqui; juízes e advogados em cards próprios
+    const ordem = { ativo: 0, passivo: 1, outro: 2 };
+    const pessoas = Services.partesDoProcesso(p.numero);
+    const ident = pessoas.filter((x) => x.tipo === 'parte')
+      .sort((a, b) => (ordem[a.polo] - ordem[b.polo]) || a.nome.localeCompare(b.nome, 'pt'));
+    if (ident.length) {
       const card = el('div', { class: 'rail-card' });
-      const ordem = { ativo: 0, passivo: 1, outro: 2 };
-      const ident = identP.slice().sort((a, b) => (ordem[a.polo] - ordem[b.polo]) || a.nome.localeCompare(b.nome, 'pt'));
-      const idKeys = new Set(ident.map((x) => x.key));
-      const outras = partesStr.filter((x) => !idKeys.has(Services.keyPessoa(x.nome)));
-      card.appendChild(el('h4', { text: `Partes (${ident.length + outras.length})` }));
+      card.appendChild(el('h4', { text: `Partes (${ident.length})` }));
+      const wrap = el('div', { class: 'parte-ident' });
+      ident.forEach((x) => {
+        const row = el('div', { class: 'parte-row polo-parte-link' });
+        row.addEventListener('click', () => go('#/partes?q=' + encodeURIComponent(x.nome)));
+        row.appendChild(el('span', { class: 'parte-nome', text: x.nome }));
+        const tag = el('span', { class: 'parte-tag' });
+        tag.appendChild(el('span', { class: 'parte-tag-dot polo-' + x.polo }));
+        const parts = [];
+        if (x.papel) parts.push(x.papel);
+        else if (x.polo === 'ativo' || x.polo === 'passivo') parts.push(POLO_LABEL[x.polo]);
+        if (x.fontes) parts.push(x.fontes);
+        tag.appendChild(el('span', { text: parts.join(' · ') || '—' }));
+        row.appendChild(tag);
+        wrap.appendChild(row);
+      });
+      card.appendChild(wrap);
+      rail.appendChild(card);
+    }
 
-      if (ident.length) {
-        const wrap = el('div', { class: 'parte-ident' });
-        ident.forEach((x) => {
-          const row = el('div', { class: 'parte-row polo-parte-link' });
-          row.addEventListener('click', () => go('#/partes?q=' + encodeURIComponent(x.nome)));
-          row.appendChild(el('span', { class: 'parte-nome', text: x.nome }));
-          const tag = el('span', { class: 'parte-tag' });
-          tag.appendChild(el('span', { class: 'parte-tag-dot polo-' + x.polo }));
-          const parts = [];
-          if (x.papel) parts.push(x.papel);
-          else if (x.polo === 'ativo' || x.polo === 'passivo') parts.push(POLO_LABEL[x.polo]);
-          if (x.fonte) parts.push(x.fonte);
-          tag.appendChild(el('span', { text: parts.join(' · ') || '—' }));
-          row.appendChild(tag);
-          wrap.appendChild(row);
-        });
-        card.appendChild(wrap);
-      }
-      if (outras.length) {
-        const gr = el('div', { class: 'polo-group', style: ident.length ? 'margin-top:14px;' : '' });
-        gr.appendChild(el('div', { class: 'polo-label outro', text: 'Outras' }));
-        outras.forEach((x) => gr.appendChild(el('div', { class: 'polo-parte', text: x.nome })));
-        card.appendChild(gr);
-      }
+    const juizes = pessoas.filter((x) => x.tipo === 'juiz');
+    if (juizes.length) {
+      const card = el('div', { class: 'rail-card' });
+      card.appendChild(el('h4', { text: `Juízes (${juizes.length})` }));
+      const chips = el('div', { class: 'chips' });
+      juizes.forEach((x) => {
+        const c = el('span', { class: 'chip click', text: x.nome, title: [x.papel, x.fontes].filter(Boolean).join(' · ') });
+        c.addEventListener('click', () => go('#/partes?q=' + encodeURIComponent(x.nome)));
+        chips.appendChild(c);
+      });
+      card.appendChild(chips);
       rail.appendChild(card);
     }
 
@@ -783,6 +779,7 @@
     card.appendChild(el('div', { class: 'tl-desc', text: m.descricao || '—' }));
     // DJERJ/DOERJ: edição/disponibilização (data_original) + links para a página e o caderno (TJRJ / IOERJ)
     if (src === 'dje' && m.data_original) card.appendChild(el('div', { class: 'tl-sub', text: m.data_original }));
+    else if (f === 'TJRJ' && m.data_original && fmtData(m.data_iso) !== m.data_original) card.appendChild(el('div', { class: 'tl-sub', text: 'Registrado em ' + m.data_original }));
     if (m.detalhe && m.detalhe.trim()) card.appendChild(el('div', { class: 'tl-detail', text: m.detalhe.trim() }));
     let links = [];
     try { links = m.links ? JSON.parse(m.links) : []; } catch (e) { links = []; }
@@ -1279,23 +1276,28 @@
     return card;
   }
 
-  function parteCard(x) {
-    const c = el('button', { class: 'adv-card' });
-    c.style.setProperty('--c', colorFor(x.key || x.nome));
-    c.appendChild(el('span', { class: 'adv-avatar', text: iniciais(x.nome) }));
-    const info = el('div', { class: 'adv-info' });
-    info.appendChild(el('div', { class: 'adv-name', text: x.nome }));
-    const meta = [];
-    if (x.polo && POLO_TAG[x.polo]) meta.push(POLO_TAG[x.polo]);
-    if (x.temDoc) meta.push('documento');
-    if (meta.length) info.appendChild(el('div', { class: 'adv-oab', text: meta.join(' · ') }));
-    c.appendChild(info);
-    const cnt = el('div', { class: 'adv-count' });
-    cnt.appendChild(el('div', { class: 'num', text: x.n }));
-    cnt.appendChild(el('div', { class: 'lab', text: x.n === 1 ? 'processo' : 'processos' }));
-    c.appendChild(cnt);
-    c.addEventListener('click', () => go('#/partes?q=' + encodeURIComponent(x.nome)));
-    return c;
+  const TIPOS_PESSOA = [['parte', 'Partes'], ['advogado', 'Advogados'], ['juiz', 'Juízes']];
+  const COLS_PESSOA = [['nome', 'Nome'], ['n', 'Processos'], ['polo', 'Polo'], ['papel', 'Papel'],
+    ['documento', 'Documento / OAB'], ['nascimento', 'Nascimento'], ['fontes', 'Fontes']];
+
+  // tabela de pessoas: só as colunas com algum valor na lista
+  function tabelaPessoas(list, tipo) {
+    const val = (x, k) => (k === 'polo' ? POLO_TAG[x.polo] : k === 'n' ? String(x.n) : x[k]) || '';
+    const cols = COLS_PESSOA.filter(([k]) => list.some((x) => val(x, k)));
+    const wrap = el('div', { class: 'list-wrap' });
+    const t = el('table', { class: 'ptable pessoas' });
+    const hr = el('tr');
+    cols.forEach(([k, lab]) => hr.appendChild(el('th', { class: 'col-' + k, text: lab })));
+    t.appendChild(el('thead', {}, hr));
+    const tb = el('tbody');
+    list.forEach((x) => {
+      const tr = el('tr');
+      tr.addEventListener('click', () => go((tipo === 'advogado' ? '#/advogado?q=' : '#/partes?q=') + encodeURIComponent(x.nome)));
+      cols.forEach(([k]) => tr.appendChild(el('td', { class: 'col-' + k, text: val(x, k) })));
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb); wrap.appendChild(t);
+    return wrap;
   }
 
   // painel de uma pessoa: relações (Lista/Rede) + detalhes + lista de processos
@@ -1369,9 +1371,11 @@
       addF('Processos', String(det.n));
       const polosTxt = [det.polos.ativo ? `${det.polos.ativo} ativo` : '', det.polos.passivo ? `${det.polos.passivo} passivo` : '', det.polos.outro ? `${det.polos.outro} outro` : ''].filter(Boolean).join(' · ');
       addF('Polo', polosTxt);
-      if (det.documentos.length) addF('Documento', det.documentos.join(', '), true);
-      if (det.nascimentos.length) addF('Nascimento', det.nascimentos.join(', '), true);
-      if (det.fontes.length) addF('Fonte', det.fontes.join(', '));
+      addF('Papel', det.papeis.join(', '));
+      addF('Documento', det.documentos.join(', '), true);
+      addF('OAB', det.oabs.join(', '), true);
+      addF('Nascimento', det.nascimentos.join(', '), true);
+      addF('Fontes', det.fontes.join(', '));
       dcard.appendChild(facts);
       wrapAll.appendChild(dcard);
     }
@@ -1400,18 +1404,18 @@
     return wrapAll;
   }
 
-  function renderDiretorioPartes(sub, results, ac) {
-    const all = Services.listarPartes();
-    sub.textContent = `${all.length.toLocaleString('pt-BR')} pessoas na base`;
-    results.appendChild(el('p', { class: 'result-meta', text: 'Mais frequentes primeiro. Clique em uma pessoa para ver conexões e processos.' }));
-    const grid = el('div', { class: 'adv-grid' });
+  function renderDiretorioPartes(sub, results, ac, tipo) {
+    const all = Services.listarPartes(tipo);
+    sub.textContent = `${all.length.toLocaleString('pt-BR')} ${TIPOS_PESSOA.find(([t]) => t === tipo)[1].toLowerCase()} na base`;
+    results.appendChild(el('p', { class: 'result-meta', text: 'Mais frequentes primeiro. Clique em uma linha para ver conexões e processos.' }));
+    const grid = el('div');
     results.appendChild(grid);
     function paint(term) {
       grid.innerHTML = '';
       const t = (term || '').trim().toLowerCase();
       const list = t ? all.filter((x) => x.nome.toLowerCase().includes(t)) : all;
-      list.slice(0, 400).forEach((x) => grid.appendChild(parteCard(x)));
-      if (!list.length) grid.appendChild(emptyState('Nenhuma pessoa', 'Ajuste o filtro.', '<circle cx="11" cy="9" r="3"/><path d="M5 19c0-3 3-5 6-5s6 2 6 5"/>'));
+      if (list.length) grid.appendChild(tabelaPessoas(list.slice(0, 400), tipo));
+      else grid.appendChild(emptyState('Nenhuma pessoa', 'Ajuste o filtro.', '<circle cx="11" cy="9" r="3"/><path d="M5 19c0-3 3-5 6-5s6 2 6 5"/>'));
     }
     let deb;
     ac.addEventListener('input', () => { clearTimeout(deb); deb = setTimeout(() => paint(ac.getValue()), 220); });
@@ -1425,11 +1429,18 @@
     const tools = el('div', { class: 'adv-toolbar', style: 'margin-top:14px;' });
     const fA = el('div', { class: 'field', style: 'flex:1; min-width:230px; max-width:360px;' });
     fA.innerHTML = `<svg class="ico-search" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4" stroke-linecap="round"/></svg>`;
-    const ac = makeAdvAC('Nome da pessoa…', params.q || '', Services.listarPartes);
+    const tipo = params.tipo || 'parte';
+    const ac = makeAdvAC('Nome da pessoa…', params.q || '', () => Services.listarPartes(tipo));
     fA.appendChild(ac.el);
     const btn = el('button', { class: 'btn primary', text: 'Buscar' });
     const btnAll = el('a', { class: 'btn', href: '#/partes', text: 'Ver todas' });
-    tools.append(fA, btn, btnAll);
+    const seg = el('div', { class: 'seg seg-tipo' });
+    TIPOS_PESSOA.forEach(([t, lab]) => {
+      const b = el('button', { class: t === tipo && !params.q ? 'active' : '', text: lab });
+      b.addEventListener('click', () => go(t === 'parte' ? '#/partes' : '#/partes?tipo=' + t));
+      seg.appendChild(b);
+    });
+    tools.append(fA, btn, btnAll, seg);
     top.appendChild(tools); v.appendChild(top);
 
     const content = el('div', { class: 'content' });
@@ -1448,7 +1459,7 @@
     function render() {
       const q = ac.getValue(); results.innerHTML = '';
       const sub = $('#partes-sub');
-      if (!q) { renderDiretorioPartes(sub, results, ac); return; }
+      if (!q) { renderDiretorioPartes(sub, results, ac, tipo); return; }
       sub.textContent = '';
       results.appendChild(painelParte(q));
     }

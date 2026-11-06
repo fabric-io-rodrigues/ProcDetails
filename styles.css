@@ -573,15 +573,13 @@ select.input { appearance: none; padding-right: 34px;
 .rail-fact .v.mono { font-family: var(--mono); }
 .rail-badges { margin-top: 13px; padding-top: 13px; border-top: 1px solid var(--line-2); }
 
-/* partes agrupadas por polo */
-.polo-group { margin-bottom: 13px; }
-.polo-group:last-child { margin-bottom: 0; }
-.polo-label { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 6px; display: inline-flex; align-items: center; gap: 6px; }
-.polo-label::before { content: ''; width: 7px; height: 7px; border-radius: 50%; }
-.polo-label.ativo { color: var(--tjrj); } .polo-label.ativo::before { background: var(--tjrj); }
-.polo-label.passivo { color: var(--mprj); } .polo-label.passivo::before { background: var(--mprj); }
-.polo-label.outro { color: var(--muted); } .polo-label.outro::before { background: var(--faint); }
-.polo-parte { font-size: 13px; line-height: 1.5; padding: 2px 0 2px 13px; }
+/* tabela de pessoas (tela Partes) */
+.seg-tipo { flex: 0 0 auto; min-width: 280px; }
+.ptable.pessoas td { color: var(--muted); font-size: 13px; }
+.ptable.pessoas td.col-nome { color: var(--ink); font-weight: 600; }
+.ptable.pessoas .col-n { text-align: right; font-variant-numeric: tabular-nums; }
+.ptable.pessoas td.col-n { color: var(--ink); font-weight: 600; }
+.ptable.pessoas td.col-documento, .ptable.pessoas td.col-nascimento { font-family: var(--mono); font-size: 12px; }
 
 /* --------------------------------------------------- advogados (cards) */
 .adv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 12px; }
@@ -897,6 +895,8 @@ select.input { appearance: none; padding-right: 34px;
   .ptable .cell-date { margin-top: 4px; display: inline-flex; gap: 8px; align-items: baseline; }
   .ptable .cell-date .rel { display: inline; }
   .ptable td .badges { margin-top: 6px; }
+  .ptable.pessoas td.col-n { position: absolute; right: 14px; top: 12px; }
+  .seg-tipo { flex: 1 1 100%; min-width: 0; }
 
   /* lista compacta empilha */
   .crow { flex-wrap: wrap; padding: 12px 14px; }
