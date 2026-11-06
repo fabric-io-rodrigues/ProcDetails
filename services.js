@@ -173,14 +173,26 @@
     return rows.length ? rows[0] : null;
   }
 
+  // "frase exata", a OR b, -excluir; demais palavras: prefixo, todas obrigatórias
   function ftsExpr(q) {
-    const tokens = String(q || '')
-      .toLowerCase()
-      .replace(/["()*:^]/g, ' ')
-      .split(/\s+/)
-      .filter((t) => t.length >= 2);
-    if (!tokens.length) return null;
-    return tokens.map((t) => '"' + t + '"*').join(' ');
+    const palavras = (s) => s.toLowerCase().replace(/["()*:^]/g, ' ').split(/\s+/)
+      .filter((t) => t.length >= 2).map((t) => '"' + t + '"*');
+    const ou = (xs) => (xs.length > 1 ? '(' + xs.join(' OR ') + ')' : xs[0]);
+    const pos = [], neg = [];
+    let juntar = false;
+    for (const [, menos, frase, palavra] of String(q || '').matchAll(/(-?)(?:"([^"]*)"?|(\S+))/g)) {
+      if (!menos && palavra === 'OR') { juntar = true; continue; }
+      const p = frase != null ? (/[\p{L}\p{N}]/u.test(frase) ? ['"' + frase + '"'] : []) : palavras(palavra);
+      if (!p.length) continue;
+      const item = p.length > 1 ? '(' + p.join(' AND ') + ')' : p[0];
+      if (menos) neg.push(item);
+      else if (juntar && pos.length) pos[pos.length - 1].push(item);
+      else pos.push([item]);
+      juntar = false;
+    }
+    if (!pos.length) return null;
+    const e = pos.map(ou).join(' AND ');
+    return neg.length ? `(${e}) NOT ${ou(neg)}` : e;
   }
 
   // Colunas opcionais: n_movimentos_dje / movimentos.links só existem em bases com DJERJ
