@@ -58,6 +58,35 @@
     setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity .3s'; setTimeout(() => t.remove(), 300); }, 2200);
   }
 
+  /* ------------------------- resumo em PDF ----------------------------- */
+  const ETAPAS_RESUMO = ['Carregando componentes…', 'Lendo os dados do processo…', 'Montando o documento…', 'Pronto! Baixando o PDF.'];
+  async function gerarResumo(p) {
+    const overlay = el('div', { class: 'modal-overlay' });
+    const card = el('div', { class: 'modal-card' });
+    card.appendChild(el('h3', { class: 'modal-title', text: 'Resumo do processo' }));
+    card.appendChild(el('p', { class: 'modal-sub', text: fmtCNJ(p.numero, p.cnj) }));
+    const lista = el('ul', { class: 'resumo-etapas' });
+    const itens = ETAPAS_RESUMO.map((t) => lista.appendChild(el('li', { text: t })));
+    card.appendChild(lista);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add('show'));
+    const fechar = () => { overlay.classList.remove('show'); setTimeout(() => overlay.remove(), 160); };
+    let atual = 0;
+    const marcar = (i) => { atual = i; itens.forEach((li, k) => { li.className = k < i ? 'ok' : k === i ? 'atual' : ''; }); };
+    try {
+      await Resumo.gerar(p.numero, marcar);
+      marcar(ETAPAS_RESUMO.length);
+      setTimeout(fechar, 1000);
+    } catch (e) {
+      itens[atual].className = 'erro';
+      card.appendChild(el('p', { class: 'resumo-erro', text: e.message || String(e) }));
+      const acts = el('div', { class: 'modal-actions' });
+      acts.appendChild(el('button', { class: 'btn', type: 'button', text: 'Fechar', onclick: fechar }));
+      card.appendChild(acts);
+    }
+  }
+
   /* ------------------------- modal de tags ----------------------------- */
   function openTagsModal(titulo, currentTags, onSave) {
     let tags = [...(currentTags || [])];
@@ -567,6 +596,8 @@
     const tagBtn = el('button', { class: 'btn', html: '<svg class="ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3h6l8 8-6 6-8-8V3z" stroke-linejoin="round"/><circle cx="6.5" cy="6.5" r="1.2" fill="currentColor"/></svg> <span>Tags</span>' });
     const printBtn = el('button', { class: 'btn icon', title: 'Imprimir', html: '<svg class="ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 8V3h8v5M6 14H4v-4h12v4h-2M6 12h8v5H6z"/></svg>' });
     printBtn.addEventListener('click', () => window.print());
+    const resumoBtn = el('button', { class: 'btn', title: 'Resumo do processo em PDF', html: '<svg class="ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M5 2.5h7l3.5 3.5v11.5H5z"/><path d="M12 2.5V6h3.5M7.5 10h5M7.5 13h5"/></svg> <span>Resumo</span>' });
+    resumoBtn.addEventListener('click', () => gerarResumo(p));
     favBtn.addEventListener('click', async () => {
       await toggleFav(p, null);
       const on = State.favSet.has(p.numero);
@@ -579,7 +610,7 @@
       if (!State.favSet.has(p.numero)) { toggleFav(p, null).then(() => { favBtn.classList.add('active'); favBtn.querySelector('svg').setAttribute('fill','currentColor'); favBtn.querySelector('span').textContent='Favoritado'; openTags(p); }); }
       else openTags(p);
     });
-    actions.append(favBtn, tagBtn, printBtn);
+    actions.append(favBtn, tagBtn, resumoBtn, printBtn);
     main.appendChild(actions);
     head.appendChild(main);
     v.appendChild(head);

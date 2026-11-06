@@ -738,8 +738,8 @@
 
   // Pessoas (linhas cruas da tabela) de um processo — p/ o card do detalhe
   function partesDoProcesso(numero) {
-    return query('SELECT nome, tipo, polo, papel, fontes FROM partes_processo WHERE numero_processo = ? ORDER BY id', [numero])
-      .map((r) => ({ nome: r.nome, key: _parteKey(r.nome), tipo: r.tipo, polo: _poloClasse(r.polo), papel: r.papel || '', fontes: r.fontes || '' }));
+    return query('SELECT nome, tipo, polo, papel, oab, fontes FROM partes_processo WHERE numero_processo = ? ORDER BY id', [numero])
+      .map((r) => ({ nome: r.nome, key: _parteKey(r.nome), tipo: r.tipo, polo: _poloClasse(r.polo), papel: r.papel || '', oab: r.oab || '', fontes: r.fontes || '' }));
   }
 
 

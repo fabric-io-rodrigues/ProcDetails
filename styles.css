@@ -729,6 +729,17 @@ select.input { appearance: none; padding-right: 34px;
 .tag-sugg-chip { height: 26px; padding: 0 11px; border-radius: 20px; border: 1px dashed var(--line); background: transparent; color: var(--ink-2); font-size: 12.5px; }
 .tag-sugg-chip:hover { border-style: solid; border-color: var(--accent); color: var(--accent); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 20px; }
+.resumo-etapas { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 10px; font-size: 13.5px; }
+.resumo-etapas li { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+.resumo-etapas li::before { content: ''; flex: none; width: 16px; height: 16px; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; font-size: 10px; font-weight: 700; }
+.resumo-etapas li.atual { color: var(--ink); font-weight: 600; }
+.resumo-etapas li.atual::before { border-color: var(--accent); border-right-color: transparent; animation: resumo-gira .7s linear infinite; }
+.resumo-etapas li.ok { color: var(--ink); }
+.resumo-etapas li.ok::before { content: '✓'; border: 0; background: var(--accent); color: var(--accent-ink); }
+.resumo-etapas li.erro { color: #B42318; font-weight: 600; }
+.resumo-etapas li.erro::before { content: '!'; border: 0; background: #B42318; color: #fff; }
+.resumo-erro { margin: 14px 0 0; color: #B42318; font-size: 13px; }
+@keyframes resumo-gira { to { transform: rotate(360deg); } }
 
 /* tags hierárquicas (Família/Guarda): separador suave, folha em destaque */
 .tag-sep { opacity: .45; margin: 0 1px; font-weight: 400; }

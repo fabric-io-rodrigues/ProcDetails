@@ -4,7 +4,7 @@
    - Recursos externos (CDN): cache-first (D3, sql.js, fontes)
    - Recursos locais: network-first com fallback ao cache (inclui .enc)
    ========================================================================== */
-const CACHE = 'procdetails-v2';
+const CACHE = 'procdetails-v3';
 
 /* Pré-cache do shell — instalado na primeira visita */
 const SHELL = [
@@ -16,6 +16,7 @@ const SHELL = [
   './store.js',
   './grafo.js',
   './charts.js',
+  './resumo.js',
   './manifest.json',
 ];
 
