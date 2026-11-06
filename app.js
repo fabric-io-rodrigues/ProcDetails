@@ -299,6 +299,60 @@
     return `#/processo/${numero}` + (goQ ? `?q=${encodeURIComponent(goQ)}` : '');
   }
 
+  const SR_TRECHOS = 3;
+  function trechoHTML(s) {
+    const t = document.createElement('textarea');
+    t.innerHTML = String(s || '').replace(/<[^>]*>|^[^<>]{0,80}>|<[^>]*$/g, ' ');
+    return esc(t.value.replace(/\s+/g, ' ').trim()).replace(/\x01/g, '<mark>').replace(/\x02/g, '</mark>');
+  }
+  function hitInfo(h) {
+    if (h.tipo === 'com') return { src: 'djen', rotulo: 'Comunicação · ' + (h.rotulo || 'DJEN'), href: `#/processo/${h.numero}/comunicacao/${h.id}` };
+    if (h.tipo === 'proc') return { src: '', rotulo: 'Dados do processo', href: `#/processo/${h.numero}` };
+    const src = srcMov({ fonte: h.rotulo });
+    const termo = ((/\x01([^\x02]*)\x02/.exec(h.trecho || '') || [])[1] || '').toLowerCase();
+    const aba = src === 'dje' ? 'diario' : 'movimentos';
+    return { src, rotulo: (src === 'dje' ? 'Diário · ' : 'Movimento · ') + h.rotulo, href: `#/processo/${h.numero}?tab=${aba}&f=${encodeURIComponent(termo)}` };
+  }
+  function renderBusca(rows, hits, container, goQ) {
+    container.innerHTML = '';
+    if (!rows.length) {
+      container.appendChild(emptyState('Nenhum processo encontrado', 'Ajuste a busca ou os filtros para ver resultados.'));
+      return;
+    }
+    const porProc = new Map();
+    hits.forEach((h) => { if (!porProc.has(h.numero)) porProc.set(h.numero, []); porProc.get(h.numero).push(h); });
+    const wrap = el('div', { class: 'sr-list' });
+    rows.forEach((p) => {
+      const lp = linhasProc(p);
+      const hs = porProc.get(p.numero) || [];
+      const item = el('div', { class: 'sr-item' });
+      const headRow = el('div', { class: 'sr-headrow' });
+      const head = el('a', { class: 'sr-head', href: procHref(p.numero, goQ), title: lp.tip });
+      head.appendChild(el('div', { class: 'sr-url', text: [fmtCNJ(p.numero, p.cnj), lp.sub].filter(Boolean).join(' · ') }));
+      head.appendChild(el('div', { class: 'sr-title' + (lp.segredo ? ' segredo' : ''), text: lp.main }));
+      headRow.append(head, starBtn(p));
+      item.appendChild(headRow);
+      hs.slice(0, SR_TRECHOS).forEach((h) => {
+        const info = hitInfo(h);
+        const a = el('a', { class: 'sr-hit', href: info.href });
+        const meta = el('div', { class: 'sr-meta' });
+        const lbl = el('span', { class: 'tl-src ' + info.src, html: TL_ICON[info.src] || '' });
+        lbl.appendChild(el('span', { text: info.rotulo }));
+        meta.appendChild(lbl);
+        if (h.data) meta.appendChild(el('span', { text: fmtData(h.data) }));
+        a.appendChild(meta);
+        a.appendChild(el('div', { class: 'sr-snip', html: trechoHTML(h.trecho) }));
+        item.appendChild(a);
+      });
+      if (hs.length > SR_TRECHOS) {
+        const n = hs.length - SR_TRECHOS;
+        item.appendChild(el('a', { class: 'sr-more', href: procHref(p.numero, goQ), text: `+ ${n} trecho${n > 1 ? 's' : ''} neste processo` }));
+      }
+      wrap.appendChild(item);
+    });
+    container.appendChild(wrap);
+  }
+
   function listaTabela(rows, goQ) {
     const wrap = el('div', { class: 'list-wrap' });
     const t = el('table', { class: 'ptable' });
@@ -425,10 +479,11 @@
     let curQ = q, curClasse = selClasse.value;
 
     function run() {
-      let rows;
+      let rows, hits = null;
       if (curQ.trim()) {
         try {
           rows = Services.buscaGeral(curQ);
+          hits = Services.buscaTrechos(curQ);
         } catch (e) {
           // FTS5 indisponível: fallback para busca LIKE
           rows = Services.listarProcessos({ classe: curClasse }).filter((r) => {
@@ -440,13 +495,16 @@
         }
         if (curClasse) rows = rows.filter((r) => r.classe === curClasse);
         if (soFav) rows = rows.filter((r) => State.favSet.has(r.numero));
-        meta.textContent = `${rows.length} resultado${rows.length !== 1 ? 's' : ''} para "${curQ.trim()}"`;
+        const nums = new Set(rows.map((r) => r.numero));
+        const nt = hits ? hits.filter((h) => nums.has(h.numero)).length : 0;
+        meta.textContent = `${rows.length} processo${rows.length !== 1 ? 's' : ''}` + (hits ? ` · ${nt} trecho${nt !== 1 ? 's' : ''}` : '') + ` para "${curQ.trim()}"`;
       } else {
         rows = Services.listarProcessos({ classe: curClasse });
         if (soFav) rows = rows.filter((r) => State.favSet.has(r.numero));
         meta.textContent = `${rows.length} de ${State.total}`;
       }
-      renderListaProcessos(rows, results, { goQ: curQ.trim() || undefined });
+      if (hits) renderBusca(rows, hits, results, curQ.trim());
+      else renderListaProcessos(rows, results, { goQ: curQ.trim() || undefined });
     }
 
     let deb;
@@ -571,8 +629,9 @@
     const validTabs = new Set(tabsDef.map((t) => t.id));
     let aba = (sub && sub.tab && validTabs.has(sub.tab)) ? sub.tab : 'tudo';
     // a busca da timeline é independente da busca da lista principal.
-    // (sub.q vem da URL só para o "voltar" preservar o contexto da lista.)
-    let filtro = '';
+    // (sub.q vem da URL só para o "voltar" preservar o contexto da lista; sub.f pré-preenche esta busca.)
+    let filtro = (sub && sub.f) || '';
+    searchInput.value = filtro;
     function activate(tab) {
       aba = tab;
       $$('.tab', tabs).forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
@@ -710,9 +769,13 @@
     item.append(date, track);
     return item;
   }
+  function srcMov(m) {
+    const f = (m.fonte || '').toUpperCase();
+    return ehDiario(m) ? 'dje' : f.includes('PJE') ? 'pje' : f.includes('MP') ? 'mprj' : 'tjrj';
+  }
   function movCardBody(m) {
     const f = (m.fonte || '').toUpperCase();
-    const src = ehDiario(m) ? 'dje' : f.includes('PJE') ? 'pje' : f.includes('MP') ? 'mprj' : 'tjrj';
+    const src = srcMov(m);
     const card = el('div', { class: 'tl-card' });
     const lbl = el('div', { class: 'tl-src ' + src, html: TL_ICON[src] });
     lbl.appendChild(el('span', { text: (src === 'dje' ? 'Diário · ' : 'Movimento · ') + (m.fonte || src.toUpperCase()) }));

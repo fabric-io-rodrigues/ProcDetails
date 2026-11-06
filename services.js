@@ -1011,6 +1011,27 @@
     );
   }
 
+  function buscaTrechos(q, limite = 1000) {
+    const expr = ftsExpr(q);
+    if (!expr) return [];
+    const snip = (fts, col) => `snippet(${fts}, ${col}, char(1), char(2), '…', 24)`;
+    const sel = (fts, cols, join, col) => `SELECT * FROM (
+        SELECT ${cols}, ${col == null ? snip(fts, -1) : `CASE WHEN instr(${snip(fts, col)}, char(1)) THEN ${snip(fts, col)} ELSE ${snip(fts, -1)} END`} AS trecho,
+               bm25(${fts}) AS rank
+        FROM ${fts} JOIN ${join} WHERE ${fts} MATCH ? ORDER BY rank LIMIT ?)`;
+    return query(
+      [sel('comunicacoes_fts', `'com' AS tipo, c.id, c.numero_processo AS numero, c.data_disponibilizacao AS data,
+                                COALESCE(NULLIF(c.tipo_comunicacao, ''), c.tipo_documento) AS rotulo`,
+           'comunicacoes c ON c.id = comunicacoes_fts.rowid', 5),
+       sel('movimentos_fts', `'mov', m.id, m.numero_processo, m.data_iso, m.fonte`,
+           'movimentos m ON m.id = movimentos_fts.rowid'),
+       sel('processos_fts', `'proc', p.id, p.numero, NULL, NULL`,
+           'processos p ON p.id = processos_fts.rowid'),
+      ].join(' UNION ALL '),
+      [expr, limite, expr, limite, expr, limite]
+    ).sort((a, b) => a.rank - b.rank);
+  }
+
   /* ----------------------------------------------------------- exporta */
   window.Services = {
     initDB,
@@ -1040,6 +1061,7 @@
     atuacaoHierarquia,
     tribunalCNJ,
     buscaGeral,
+    buscaTrechos,
     // partes (pessoas)
     listarPartes,
     statsPartes,
