@@ -1209,7 +1209,6 @@
     }
 
     render();
-    if (!params.q && !State.restoringContext) setTimeout(() => acA.el.querySelector('input').focus(), 30);
   }
 
   /* ============================== TELA: Partes (pessoas) =============== */
@@ -1464,7 +1463,6 @@
       results.appendChild(painelParte(q));
     }
     render();
-    if (!params.q && !State.restoringContext) setTimeout(() => ac.el.querySelector('input').focus(), 30);
   }
 
   /* ============================== autocomplete advogado ================ */
