@@ -1415,22 +1415,23 @@
     return wrapAll;
   }
 
-  function renderDiretorioPartes(sub, results, ac, tipo) {
+  function renderDiretorioPartes(sub, results, busca, tipo) {
     const all = Services.listarPartes(tipo);
     sub.textContent = `${all.length.toLocaleString('pt-BR')} ${TIPOS_PESSOA.find(([t]) => t === tipo)[1].toLowerCase()} na base`;
     results.appendChild(el('p', { class: 'result-meta', text: 'Mais frequentes primeiro. Clique em uma linha para ver conexões e processos.' }));
     const grid = el('div');
     results.appendChild(grid);
+    const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
     function paint(term) {
       grid.innerHTML = '';
-      const t = (term || '').trim().toLowerCase();
-      const list = t ? all.filter((x) => x.nome.toLowerCase().includes(t)) : all;
+      const t = norm(term).trim();
+      const list = t ? all.filter((x) => norm(x.nome).includes(t)) : all;
       if (list.length) grid.appendChild(tabelaPessoas(list.slice(0, 400), tipo));
       else grid.appendChild(emptyState('Nenhuma pessoa', 'Ajuste o filtro.', '<circle cx="11" cy="9" r="3"/><path d="M5 19c0-3 3-5 6-5s6 2 6 5"/>'));
     }
     let deb;
-    ac.addEventListener('input', () => { clearTimeout(deb); deb = setTimeout(() => paint(ac.getValue()), 220); });
-    paint('');
+    busca.addEventListener('input', () => { clearTimeout(deb); deb = setTimeout(() => paint(busca.value), 220); });
+    paint(busca.value);
   }
 
   function screenPartes(params) {
@@ -1441,38 +1442,37 @@
     const fA = el('div', { class: 'field', style: 'flex:1; min-width:230px; max-width:360px;' });
     fA.innerHTML = `<svg class="ico-search" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4" stroke-linecap="round"/></svg>`;
     const tipo = params.tipo || 'parte';
-    const ac = makeAdvAC('Nome da pessoa…', params.q || '', () => Services.listarPartes(tipo));
-    fA.appendChild(ac.el);
-    const btn = el('button', { class: 'btn primary', text: 'Buscar' });
-    const btnAll = el('a', { class: 'btn', href: '#/partes', text: 'Ver todas' });
+    const busca = el('input', { class: 'input', type: 'search', placeholder: 'Filtrar por nome…', value: params.q || '' });
+    fA.appendChild(busca);
+    const hrefTipo = tipo === 'parte' ? '#/partes' : '#/partes?tipo=' + tipo;
+    const btnAll = el('a', { class: 'btn', href: hrefTipo, text: 'Ver todas' });
     const seg = el('div', { class: 'seg seg-tipo' });
     TIPOS_PESSOA.forEach(([t, lab]) => {
       const b = el('button', { class: t === tipo && !params.q ? 'active' : '', text: lab });
       b.addEventListener('click', () => go(t === 'parte' ? '#/partes' : '#/partes?tipo=' + t));
       seg.appendChild(b);
     });
-    tools.append(fA, btn, btnAll, seg);
+    tools.append(fA, btnAll, seg);
     top.appendChild(tools); v.appendChild(top);
 
     const content = el('div', { class: 'content' });
     const results = el('div'); content.appendChild(results); v.appendChild(content);
 
-    function navTo() {
-      const q = ac.getValue();
-      const h = q ? '#/partes?q=' + encodeURIComponent(q) : '#/partes';
-      State.suppressRoute = true; location.hash = h; setTimeout(() => State.suppressRoute = false, 0);
+    // com uma pessoa aberta, digitar volta para a tabela já filtrada
+    let pessoa = params.q || '';
+    busca.addEventListener('input', () => {
+      if (!pessoa) return;
+      pessoa = '';
+      State.suppressRoute = true; location.hash = hrefTipo; setTimeout(() => State.suppressRoute = false, 0);
       render();
-    }
-    btn.addEventListener('click', navTo);
-    ac.addEventListener('keydown', (e) => { if (e.key === 'Enter') navTo(); });
-    ac.addEventListener('change', navTo);
+    });
 
     function render() {
-      const q = ac.getValue(); results.innerHTML = '';
+      results.innerHTML = '';
       const sub = $('#partes-sub');
-      if (!q) { renderDiretorioPartes(sub, results, ac, tipo); return; }
+      if (!pessoa) { renderDiretorioPartes(sub, results, busca, tipo); return; }
       sub.textContent = '';
-      results.appendChild(painelParte(q));
+      results.appendChild(painelParte(pessoa));
     }
     render();
   }

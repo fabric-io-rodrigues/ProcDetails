@@ -345,7 +345,13 @@
   }
 
   /* ------------------------------------------------------- 4. Advogados */
+  function _procsAdv(termo) {
+    const rec = _ensureAdv().info.get(_advKey(termo));
+    return rec ? rec.numeros : null;
+  }
   function buscarPorAdvogado(termo) {
+    const nums = _procsAdv(termo);
+    if (nums) return buscarDoisAdvogados(termo, null);
     return query(
       `SELECT numero, cnj, classe, orgao, assunto, advogados, partes,
               n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje${_djeCol()}, n_eventos_ia,
@@ -358,6 +364,16 @@
   }
 
   function buscarDoisAdvogados(termoA, termoB) {
+    const na = _procsAdv(termoA), nb = termoB == null ? null : _procsAdv(termoB);
+    if (na && (termoB == null || nb)) {
+      return query(
+        `SELECT numero, cnj, classe, orgao, assunto, advogados, partes,
+                n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje${_djeCol()}, n_eventos_ia,
+                data_ultima_com, data_ultimo_mov
+         FROM processos
+         ORDER BY data_ultima_com DESC NULLS LAST`
+      ).filter((r) => na.has(r.numero) && (!nb || nb.has(r.numero)));
+    }
     return query(
       `SELECT numero, cnj, classe, orgao, assunto, advogados, partes,
               n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje${_djeCol()}, n_eventos_ia,
@@ -372,13 +388,35 @@
 
   /* --------------------------------------------- índice de advogados */
   let _advIndex = null;
-  function _advKey(nome) {
+  function _advNome(nome) {
     return String(nome || '')
       .normalize('NFD').replace(/[̀-ͯ]/g, '')
       .toUpperCase()
       .replace(/\bDR[A]?\.?\b/g, '')
       .replace(/[^A-Z0-9 ]/g, ' ')
       .replace(/\s+/g, ' ').trim();
+  }
+  // advogado: a OAB identifica (o nome muda entre fontes); '148514/RJ' = 'RJ0148514'
+  function _chaveOab(oab) {
+    const s = String(oab || '').toUpperCase().replace('OAB', '');
+    const num = s.replace(/\D/g, '').replace(/^0+/, '');
+    return num ? 'OAB ' + (s.match(/[A-Z]{2}/g) || []).join('').slice(0, 2) + num : '';
+  }
+  // nome -> OAB (nome usado por mais de uma OAB não resolve)
+  let _oabPorNome = null;
+  function _ensureOabPorNome() {
+    if (_oabPorNome) return _oabPorNome;
+    const m = new Map(), amb = new Set();
+    for (const r of query("SELECT DISTINCT nome, oab FROM partes_processo WHERE tipo = 'advogado' AND oab <> ''")) {
+      const k = _advNome(r.nome), o = _chaveOab(r.oab);
+      if (!o) continue;
+      if (m.has(k) && m.get(k) !== o) amb.add(k); else m.set(k, o);
+    }
+    amb.forEach((k) => m.delete(k));
+    return (_oabPorNome = m);
+  }
+  function _advKey(nome, oab) {
+    return _chaveOab(oab) || _ensureOabPorNome().get(_advNome(nome)) || _advNome(nome);
   }
   function _parseAdv(str) {
     if (!str) return [];
@@ -394,7 +432,7 @@
     for (const r of rows) {
       const keys = [];
       for (const a of _parseAdv(r.advogados)) {
-        const k = _advKey(a.nome);
+        const k = _advKey(a.nome, a.oab);
         if (!k || k.length < 3) continue;
         keys.push(k);
         let rec = info.get(k);
@@ -519,7 +557,7 @@
     const procToPartes = new Map();  // numero -> [{key, polo}]
     const conta = (m, v) => { if (v) m.set(v, (m.get(v) || 0) + 1); };
     for (const r of rows) {
-      const k = _parteKey(r.nome);
+      const k = r.tipo === 'advogado' ? _advKey(r.nome, r.oab) : _parteKey(r.nome);
       if (!k || k.length < 2) continue;
       let rec = pinfo.get(k);
       if (!rec) {
@@ -552,6 +590,7 @@
     _partesIndex = { pinfo, procToPartes };
   }
   function _ensurePartes() { if (!_partesIndex) _buildPartesIndex(); return _partesIndex; }
+  function _chavePessoa(pinfo, nome) { const k = _parteKey(nome); return pinfo.has(k) ? k : _advKey(nome); }
 
   function _poloDominante(rec) {
     const p = { ativo: 0, passivo: 0, outro: 0 };
@@ -575,7 +614,7 @@
 
   function obterParte(nome) {
     const { pinfo } = _ensurePartes();
-    const rec = pinfo.get(_parteKey(nome));
+    const rec = pinfo.get(_chavePessoa(pinfo, nome));
     if (!rec) return null;
     const polos = { ativo: 0, passivo: 0, outro: 0 };
     for (const c of rec.poloByProc.values()) polos[c]++;
@@ -588,7 +627,7 @@
 
   function buscarPorParte(nome) {
     const { pinfo } = _ensurePartes();
-    const rec = pinfo.get(_parteKey(nome));
+    const rec = pinfo.get(_chavePessoa(pinfo, nome));
     if (!rec || !rec.numeros.size) return [];
     const nums = [...rec.numeros];
     const ph = nums.map(() => '?').join(',');
@@ -608,7 +647,7 @@
   const _REL_RANK = { oposto: 3, mesmo: 2, desconhecido: 1 };
   function grafoParte(nome, limite = 40) {
     const { pinfo, procToPartes } = _ensurePartes();
-    const k = _parteKey(nome);
+    const k = _chavePessoa(pinfo, nome);
     const rec = pinfo.get(k);
     if (!rec) return { nodes: [], edges: [] };
 
@@ -666,7 +705,7 @@
   // Conexões ranqueadas (para a visão "Lista" da pessoa)
   function partesRelacionadas(nome, limite = 999) {
     const { pinfo, procToPartes } = _ensurePartes();
-    const k = _parteKey(nome);
+    const k = _chavePessoa(pinfo, nome);
     const rec = pinfo.get(k);
     if (!rec) return [];
     const coCount = new Map(); const relMap = new Map();
@@ -720,7 +759,7 @@
   // Advogados presentes em TODOS os processos da pessoa (interseção; qualquer polo)
   function advogadosComunsDaParte(nome) {
     const { pinfo } = _ensurePartes();
-    const rec = pinfo.get(_parteKey(nome));
+    const rec = pinfo.get(_chavePessoa(pinfo, nome));
     if (!rec || !rec.numeros.size) return [];
     const { info, procToKeys } = _ensureAdv();
     let inter = null;
