@@ -210,6 +210,7 @@
     add('djen', 'DJEN', p.n_comunicacoes);
     add('tjrj', 'TJRJ', p.n_movimentos_tj);
     add('pje', 'PJe', p.n_movimentos_pje);
+    add('datajud', 'DataJud', p.n_movimentos_datajud);
     add('mprj', 'MPRJ', p.n_movimentos_mp);
     add('dje', 'Diário', p.n_movimentos_dje);   // DJERJ + D.O. Parte III (DOERJ)
     add('evento', 'Evento', p.n_eventos_ia);
@@ -618,7 +619,7 @@
     grid.append(mainCol, rail);
     v.appendChild(grid);
 
-    const totalMov = (p.n_movimentos_tj || 0) + (p.n_movimentos_pje || 0) + (p.n_movimentos_mp || 0);
+    const totalMov = (p.n_movimentos_tj || 0) + (p.n_movimentos_pje || 0) + (p.n_movimentos_mp || 0) + (p.n_movimentos_datajud || 0);
     const nDiario = p.n_movimentos_dje || 0;
     const tabsDef = [
       { id: 'tudo',         label: 'Tudo',         n: totalMov + nDiario + (p.n_comunicacoes || 0) + (p.n_eventos_ia || 0), always: true },
@@ -703,6 +704,12 @@
     addFact('Início', p.data_inicio ? fmtData(p.data_inicio) : null, true);
     addFact('Última com.', fmtData(p.data_ultima_com), true);
     addFact('Último mov.', fmtData(p.data_ultimo_mov), true);
+    if (p.sistema) {
+      const f = el('div', { class: 'rail-fact' });
+      f.appendChild(el('span', { class: 'k', text: 'Sistema' }));
+      f.appendChild(p.url_sistema ? el('a', { class: 'v', href: p.url_sistema, target: '_blank', rel: 'noopener', text: p.sistema + ' ↗' }) : el('span', { class: 'v', text: p.sistema }));
+      facts.appendChild(f);
+    }
     resumo.appendChild(facts);
     const badgeRow = el('div', { class: 'rail-badges' }); badgeRow.appendChild(badgesProc(p)); resumo.appendChild(badgeRow);
     rail.appendChild(resumo);
@@ -750,6 +757,7 @@
     mprj: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 2v16M5 6h10M5 6l-2.5 5h5zM15 6l2.5 5h-5z" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     pje: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="4" width="15" height="10" rx="1.5"/><path d="M7 17h6M10 14v3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     dje: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4h10v12H5.5A1.5 1.5 0 0 1 4 14.5zM14 7h2v7.5a1.5 1.5 0 0 1-3 0M7 7h4M7 10h4M7 13h2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    datajud: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><ellipse cx="10" cy="5" rx="6" ry="2.5"/><path d="M4 5v10c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V5M4 10c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5"/></svg>',
     djen: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="14" height="11" rx="1.5"/><path d="M3.5 6l6.5 5 6.5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     evento: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="14" height="13" rx="2"/><path d="M3 8h14M7 2v3M13 2v3" stroke-linecap="round"/></svg>',
     pdf: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 2h6l4 4v12H6z" stroke-linejoin="round"/><path d="M12 2v4h4" stroke-linejoin="round"/><path d="M8 12h4M8 15h3" stroke-linecap="round"/></svg>',
@@ -769,7 +777,7 @@
   }
   function srcMov(m) {
     const f = (m.fonte || '').toUpperCase();
-    return ehDiario(m) ? 'dje' : f.includes('PJE') ? 'pje' : f.includes('MP') ? 'mprj' : 'tjrj';
+    return ehDiario(m) ? 'dje' : f === 'DATAJUD' ? 'datajud' : f.includes('PJE') ? 'pje' : f.includes('MP') ? 'mprj' : 'tjrj';
   }
   function movCardBody(m) {
     const f = (m.fonte || '').toUpperCase();
