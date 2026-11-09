@@ -8,8 +8,7 @@
 
   const SQLJS_CDN = 'https://cdn.jsdelivr.net/npm/sql.js-fts5/dist/';
   /* A base de cada grupo é publicada como <nomeBase(senha)>.enc — a senha escolhe a base.
-     window.PROCDETAILS_ENC_URL (opcional) força um arquivo fixo (debug). */
-  const ENC_URL_FIXA = window.PROCDETAILS_ENC_URL || '';
+     Debug (só em localhost, ver app.js): initDB({ baseUrl }) abre um processos.db sem cifra. */
 
   /* ----------------------------------------------------------------- AUTH
      precheck() informa que a base sempre precisa de senha.
@@ -97,25 +96,30 @@
   /* ------------------------------------------------------------------ init */
   async function initDB(opts = {}) {
     const password   = opts.password || '';
+    const baseUrl    = opts.baseUrl || '';
     const onProgress = typeof opts === 'function' ? opts : opts.onProgress;
 
-    if (!password) throw new Error('Senha não pode ser vazia.');
+    if (!password && !baseUrl) throw new Error('Senha não pode ser vazia.');
 
     /* 1. Carregar sql.js */
     const SQL = await initSqlJs({ locateFile: (f) => SQLJS_CDN + f });
 
-    /* 2. Buscar base cifrada com barra de progresso (sem base com esse nome = senha errada) */
-    const url = ENC_URL_FIXA || './' + await nomeBase(password);
-    const encBuf = await fetchWithProgress(url, onProgress ? (p) => onProgress(p * 0.6) : null);
+    let sqliteBytes;
+    if (baseUrl) {
+      /* Debug: processos.db sem cifra */
+      sqliteBytes = new Uint8Array(await fetchWithProgress(baseUrl, onProgress ? (p) => onProgress(p * 0.9) : null, true));
+    } else {
+      /* 2. Buscar base cifrada com barra de progresso (sem base com esse nome = senha errada) */
+      const encBuf = await fetchWithProgress('./' + await nomeBase(password), onProgress ? (p) => onProgress(p * 0.6) : null);
 
-    /* 3. Decifrar (PBKDF2 + AES-256-GCM) */
-    if (onProgress) onProgress(0.65);
-    const encBytes   = new Uint8Array(encBuf);
-    const compressed = await decifrar(encBytes, password);
+      /* 3. Decifrar (PBKDF2 + AES-256-GCM) */
+      if (onProgress) onProgress(0.65);
+      const compressed = await decifrar(new Uint8Array(encBuf), password);
 
-    /* 4. Descomprimir gzip */
-    if (onProgress) onProgress(0.80);
-    const sqliteBytes = await descomprimirGzip(compressed);
+      /* 4. Descomprimir gzip */
+      if (onProgress) onProgress(0.80);
+      sqliteBytes = await descomprimirGzip(compressed);
+    }
 
     /* 5. Abrir banco */
     if (onProgress) onProgress(0.95);
@@ -127,9 +131,9 @@
     return _db;
   }
 
-  async function fetchWithProgress(url, onProgress) {
+  async function fetchWithProgress(url, onProgress, urlExplicita = false) {
     const res = await fetch(url);
-    if (res.status === 404 && !ENC_URL_FIXA) throw new Error('SENHA_INCORRETA');
+    if (res.status === 404 && !urlExplicita) throw new Error('SENHA_INCORRETA');
     if (!res.ok) throw new Error('HTTP ' + res.status + ' ao buscar ' + url);
     const total = +(res.headers.get('Content-Length') || 0);
     if (!res.body || !total || !onProgress) {

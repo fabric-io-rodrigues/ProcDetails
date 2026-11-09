@@ -2072,13 +2072,14 @@
   }
 
   /* =============================== boot ================================ */
-  async function carregarBase(password) {
+  async function carregarBase(password, baseUrl) {
     const bar = $('#progress-bar'), pct = $('#splash-pct'), sub = $('#splash-sub');
-    sub.textContent = 'Decifrando base de dados…';
+    sub.textContent = baseUrl ? 'Carregando base local (debug)…' : 'Decifrando base de dados…';
     bar.style.width = '0%'; pct.textContent = '0%';
     await Services.initDB({
       password,
-      onProgress: (p) => {
+      baseUrl,
+      onProgress: baseUrl ? (p) => { const v = Math.round(p * 100); bar.style.width = v + '%'; pct.textContent = v + '%'; } : (p) => {
         const v = Math.round(p * 100);
         bar.style.width = v + '%'; pct.textContent = v + '%';
         if (p >= 0.95) sub.textContent = 'Indexando…';
@@ -2094,7 +2095,7 @@
 
     $('#db-status').classList.add('ok');
     $('#db-status-text').textContent = `${State.total.toLocaleString('pt-BR')} processos`;
-    $('#brand-meta').textContent = (State.grupo ? State.grupo + ' · ' : '') + `${State.total} processos`;
+    $('#brand-meta').textContent = (baseUrl ? 'DEBUG · ' : '') + (State.grupo ? State.grupo + ' · ' : '') + `${State.total} processos`;
 
     $('#app').hidden = false;
     $('#splash').classList.add('hide');
@@ -2164,6 +2165,14 @@
     aplicarTweaks();
 
     if (typeof initSqlJs === 'undefined') { splashFatal('sql.js não carregou — verifique a conexão.'); return; }
+
+    // Debug: ?base=<processos.db sem cifra>, aceito só com o visualizador servido em localhost
+    // (no site publicado o parâmetro é ignorado e a senha continua obrigatória).
+    const baseDebug = new URLSearchParams(location.search).get('base');
+    if (baseDebug && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) {
+      try { await carregarBase('', baseDebug); } catch (e) { splashFatal(String(e.message || e)); }
+      return;
+    }
 
     // Reaproveita senha da sessão (evita re-digitar ao recarregar a aba)
     let saved = null;
