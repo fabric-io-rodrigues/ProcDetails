@@ -106,11 +106,14 @@
 
     let sqliteBytes;
     if (baseUrl) {
-      /* Debug: processos.db sem cifra */
+      /* Debug: processos.db sem cifra; decisoes.zip (sem cifra) na mesma pasta */
       sqliteBytes = new Uint8Array(await fetchWithProgress(baseUrl, onProgress ? (p) => onProgress(p * 0.9) : null, true));
+      _decisoes = { url: new URL('decisoes.zip', new URL(baseUrl, location.href)).href, senha: '' };
     } else {
       /* 2. Buscar base cifrada com barra de progresso (sem base com esse nome = senha errada) */
-      const encBuf = await fetchWithProgress('./' + await nomeBase(password), onProgress ? (p) => onProgress(p * 0.6) : null);
+      const nome = await nomeBase(password);
+      _decisoes = { url: './' + nome.replace(/\.enc$/, '_decisoes.zip'), senha: password };
+      const encBuf = await fetchWithProgress('./' + nome, onProgress ? (p) => onProgress(p * 0.6) : null);
 
       /* 3. Decifrar (PBKDF2 + AES-256-GCM) */
       if (onProgress) onProgress(0.65);
@@ -156,6 +159,72 @@
     let pos = 0;
     for (const c of chunks) { out.set(c, pos); pos += c.length; }
     return out.buffer;
+  }
+
+  /* ------------------------------------------------------ decisões (zip)
+     <base>_decisoes.zip (deploy_base.py): zip sem compressão, comentário 'PJDZ1:<salt hex>', cada entrada =
+     nonce(12) + AES-GCM(PDF) com chave = PBKDF2(senha, salt). Baixa só o necessário por HTTP Range: o fim do
+     arquivo (EOCD), o diretório central (uma vez por sessão) e a entrada pedida. Sem o comentário (zip local
+     do debug) a entrada já é o PDF. */
+  let _decisoes = null;   // { url, senha, dir: Promise<{ entradas, chave }> }
+
+  // bytes [ini, fim]; ini < 0 = os últimos -ini bytes. Servidor sem Range (http.server do debug) devolve tudo.
+  async function _faixa(url, ini, fim) {
+    const res = await fetch(url, { headers: { Range: ini < 0 ? `bytes=${ini}` : `bytes=${ini}-${fim}` } });
+    if (res.status === 404) throw new Error('Arquivo de decisões não encontrado.');
+    if (!res.ok) throw new Error('HTTP ' + res.status + ' ao buscar as decisões');
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (res.status === 206) return buf;
+    return ini < 0 ? buf.slice(ini) : buf.slice(ini, fim + 1);
+  }
+  const _u16 = (b, o) => b[o] | (b[o + 1] << 8);
+  const _u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
+  const ZIP_INVALIDO = 'Arquivo de decisões inválido.';
+
+  async function _diretorioDecisoes() {
+    const { url, senha } = _decisoes;
+    const fim = await _faixa(url, -1024);
+    let e = fim.length - 22;
+    while (e >= 0 && _u32(fim, e) !== 0x06054b50) e--;
+    if (e < 0) throw new Error(ZIP_INVALIDO);
+    const n = _u16(fim, e + 10), tam = _u32(fim, e + 12), ini = _u32(fim, e + 16);
+    const comentario = new TextDecoder().decode(fim.subarray(e + 22, e + 22 + _u16(fim, e + 20)));
+    const cd = n ? await _faixa(url, ini, ini + tam - 1) : new Uint8Array(0);
+    const entradas = new Map();
+    for (let i = 0, o = 0; i < n; i++) {
+      if (_u32(cd, o) !== 0x02014b50 || _u16(cd, o + 10) !== 0) throw new Error(ZIP_INVALIDO);   // só ZIP_STORED
+      const ln = _u16(cd, o + 28);
+      entradas.set(new TextDecoder().decode(cd.subarray(o + 46, o + 46 + ln)), { tam: _u32(cd, o + 20), local: _u32(cd, o + 42), ln });
+      o += 46 + ln + _u16(cd, o + 30) + _u16(cd, o + 32);
+    }
+    let chave = null;
+    if (comentario.startsWith('PJDZ1:')) {
+      const salt = new Uint8Array(comentario.slice(6).match(/../g).map((h) => parseInt(h, 16)));
+      chave = await derivarChave(senha, salt);
+    }
+    return { entradas, chave };
+  }
+
+  /* PDF (Blob) da entrada `nome` (movimentos.decisao) do zip de decisões do grupo. */
+  async function obterDecisao(nome) {
+    if (!_decisoes) throw new Error('Banco não inicializado');
+    if (!_decisoes.dir) _decisoes.dir = _diretorioDecisoes().catch((e) => { _decisoes.dir = null; throw e; });
+    const { entradas, chave } = await _decisoes.dir;
+    const ent = entradas.get(nome);
+    if (!ent) throw new Error('Documento não está no arquivo de decisões (atualize a página).');
+    let bloco = await _faixa(_decisoes.url, ent.local, ent.local + 30 + ent.ln + 64 + ent.tam - 1);
+    if (_u32(bloco, 0) !== 0x04034b50) throw new Error(ZIP_INVALIDO);
+    let ini = 30 + _u16(bloco, 26) + _u16(bloco, 28);
+    if (ini + ent.tam > bloco.length) {   // extra do cabeçalho local maior que a folga
+      bloco = await _faixa(_decisoes.url, ent.local + ini, ent.local + ini + ent.tam - 1);
+      ini = 0;
+    }
+    let pdf = bloco.subarray(ini, ini + ent.tam);
+    if (chave) {
+      try { pdf = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: pdf.subarray(0, 12) }, chave, pdf.subarray(12))); }
+      catch (e) { throw new Error('Não foi possível decifrar o documento (atualize a página).'); }
+    }
+    return new Blob([pdf], { type: 'application/pdf' });
   }
 
   /* --------------------------------------------------------------- helpers */
@@ -262,9 +331,9 @@
   }
 
   function listarMovimentos(numero) {
-    const links = _temCol('movimentos', 'links') ? ', links' : '';
+    const extra = ['links', 'decisao'].filter((c) => _temCol('movimentos', c)).map((c) => ', ' + c).join('');
     return query(
-      `SELECT fonte, data_iso, data_original, descricao, detalhe${links}
+      `SELECT fonte, data_iso, data_original, descricao, detalhe${extra}
        FROM movimentos WHERE numero_processo = ?
        ORDER BY data_iso DESC, id DESC`,
       [numero]
@@ -1128,6 +1197,7 @@
     contarProcessos,
     obterProcesso,
     listarMovimentos,
+    obterDecisao,
     listarComunicacoes,
     obterTextoComunicacao,
     FORMATO_MARKDOWN,

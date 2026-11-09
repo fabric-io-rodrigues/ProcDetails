@@ -779,7 +779,47 @@
     const f = (m.fonte || '').toUpperCase();
     return ehDiario(m) ? 'dje' : f === 'DATAJUD' ? 'datajud' : f.includes('PJE') ? 'pje' : f.includes('MP') ? 'mprj' : 'tjrj';
   }
-  function movCardBody(m) {
+  // PDF do ato (zip de decisões do grupo, baixado por byte-range) num popup
+  async function abrirDecisao(m, p) {
+    const overlay = el('div', { class: 'modal-overlay' });
+    const card = el('div', { class: 'modal-card modal-pdf' });
+    const head = el('div', { class: 'pdf-head' });
+    const tit = el('div', { class: 'pdf-tit' });
+    tit.appendChild(el('h3', { class: 'modal-title', text: m.descricao || 'Ato do processo' }));
+    tit.appendChild(el('p', { class: 'modal-sub', text: fmtCNJ(p.numero, p.cnj) + ' · ' + fmtData(m.data_iso) }));
+    const acts = el('div', { class: 'pdf-acts' });
+    head.append(tit, acts);
+    const corpo = el('div', { class: 'pdf-corpo', text: 'Carregando documento…' });
+    card.append(head, corpo);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add('show'));
+    let url = null;
+    const fechar = () => {
+      document.removeEventListener('keydown', onKey);
+      overlay.classList.remove('show');
+      setTimeout(() => { overlay.remove(); if (url) URL.revokeObjectURL(url); }, 160);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') fechar(); };
+    document.addEventListener('keydown', onKey);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) fechar(); });
+    const btnFechar = el('button', { class: 'btn', type: 'button', text: 'Fechar', onclick: fechar });
+    acts.appendChild(btnFechar);
+    try {
+      url = URL.createObjectURL(await Services.obterDecisao(m.decisao));
+      if (!overlay.isConnected) { URL.revokeObjectURL(url); return; }
+      const nome = `${p.numero}_${m.data_iso || 'ato'}.pdf`;
+      acts.insertBefore(el('a', { class: 'com-btn', href: url, target: '_blank', rel: 'noopener', title: 'Abrir em nova aba', html: TL_ICON.ext + '<span>Nova aba</span>' }), btnFechar);
+      acts.insertBefore(el('a', { class: 'com-btn', href: url, download: nome, title: 'Baixar o PDF', html: TL_ICON.pdf + '<span>Baixar</span>' }), btnFechar);
+      corpo.textContent = '';
+      corpo.appendChild(el('iframe', { class: 'pdf-frame', src: url, title: 'PDF do ato' }));
+    } catch (e) {
+      corpo.textContent = '';
+      corpo.appendChild(el('p', { class: 'resumo-erro', text: e.message || String(e) }));
+    }
+  }
+
+  function movCardBody(m, p) {
     const f = (m.fonte || '').toUpperCase();
     const src = srcMov(m);
     const card = el('div', { class: 'tl-card' });
@@ -793,8 +833,9 @@
     if (m.detalhe && m.detalhe.trim()) card.appendChild(src === 'dje' ? el('div', { class: 'tl-detail', text: m.detalhe.trim() }) : detalheRico(m.detalhe));
     let links = [];
     try { links = m.links ? JSON.parse(m.links) : []; } catch (e) { links = []; }
-    if (links.length) {
+    if (links.length || m.decisao) {
       const acts = el('div', { class: 'tl-links' });
+      if (m.decisao) acts.appendChild(el('button', { class: 'com-btn', type: 'button', title: 'Ver o PDF do ato assinado', html: TL_ICON.pdf + '<span>Ver ato (PDF)</span>', onclick: () => abrirDecisao(m, p) }));
       links.forEach((l) => acts.appendChild(el('a', { class: 'com-btn', href: l.url, target: '_blank', rel: 'noopener', title: f.includes('DOMPRJ') ? 'Abrir no Diário Oficial (MPRJ)' : f.includes('DOERJ') ? 'Abrir no Diário Oficial (IOERJ)' : 'Abrir no DJERJ (TJRJ)', html: TL_ICON.ext + `<span>${esc(l.rotulo)}</span>` })));
       card.appendChild(acts);
     }
@@ -905,7 +946,7 @@
     const tl = el('div', { class: 'timeline' });
     const expandId = sub && sub.comId ? String(sub.comId) : null;
     all.forEach((x) => {
-      if (x.k === 'mov') { const { card, src } = movCardBody(x.m); tl.appendChild(tlItem(x.data, src, card)); }
+      if (x.k === 'mov') { const { card, src } = movCardBody(x.m, p);tl.appendChild(tlItem(x.data, src, card)); }
       else if (x.k === 'com') {
         const autoExpand = (sub && sub.expandAll) || (!!t && !comMatch(x.c, t)); // expand se match só no texto completo
         const com = comunicacaoItem(x.c, p, { expandAll: autoExpand, inTimeline: true });
@@ -927,7 +968,7 @@
       return emptyState('Sem movimentos', t ? 'Nenhum movimento corresponde à busca.' : 'Este processo não possui movimentos registrados.');
     }
     const tl = el('div', { class: 'timeline' });
-    movs.forEach((m) => { const { card, src } = movCardBody(m); tl.appendChild(tlItem(m.data_iso, src, card)); });
+    movs.forEach((m) => { const { card, src } = movCardBody(m, p);tl.appendChild(tlItem(m.data_iso, src, card)); });
     return tl;
   }
 
