@@ -487,6 +487,11 @@ select.input { appearance: none; padding-right: 34px;
   font-family: var(--mono); font-size: 12.5px; line-height: 1.65; color: var(--ink-2);
   white-space: pre-wrap; word-break: break-word; padding: 14px; max-height: 460px; overflow: auto;
 }
+.com-full.com-md { white-space: normal; font-family: inherit; font-size: 13px; line-height: 1.6; }
+.com-md p, .com-md ul { margin: 0 0 10px; }
+.com-md ul { padding-left: 20px; }
+.com-md hr { border: none; border-top: 1px solid var(--line-2); margin: 10px 0; }
+.com-md a { color: var(--accent); word-break: break-all; }
 .com--tl .com-date { display: none; }
 
 /* eventos */

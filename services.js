@@ -278,7 +278,7 @@
   function listarComunicacoes(numero) {
     const cols = _comunicacaoCols();
     const extra = [];
-    ['hash', 'hash_certidao', 'numero_comunicacao', 'id_comunicacao'].forEach((c) => { if (cols.has(c)) extra.push(c); });
+    ['hash', 'hash_certidao', 'numero_comunicacao', 'id_comunicacao', 'formato_texto'].forEach((c) => { if (cols.has(c)) extra.push(c); });
     const extraSel = extra.length ? ', ' + extra.join(', ') : '';
     return query(
       `SELECT id, data_disponibilizacao, tipo_comunicacao, tipo_documento,
@@ -294,6 +294,39 @@
   function obterTextoComunicacao(id) {
     const r = queryOne('SELECT texto FROM comunicacoes WHERE id = ?', [id]);
     return r ? r.texto : '';
+  }
+
+  /* Markdown das comunicações com formato_texto = 2 (o indexar.py converte o HTML do DJEN).
+     Só o subconjunto que o markdownify gera: negrito, itálico, links, listas "- ", títulos "#", "---". */
+  const FORMATO_MARKDOWN = 2;
+  const _escMd = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  function _mdInline(s) {
+    return _escMd(s)
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+      .replace(/(^|[\s(])(https?:\/\/[^\s<]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>')
+      .replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, '<b>$1</b>')
+      .replace(/(^|[^*\w])\*(?=\S)([^*]*?\S)\*(?![*\w])/g, '$1<i>$2</i>');
+  }
+
+  function mdParaHtml(md) {
+    return String(md || '').split(/\n{2,}/).map((bloco) => {
+      const linhas = bloco.split('\n');
+      if (/^-{3,}$/.test(bloco.trim())) return '<hr>';
+      if (linhas.every((l) => /^[-*] /.test(l))) return '<ul>' + linhas.map((l) => `<li>${_mdInline(l.slice(2))}</li>`).join('') + '</ul>';
+      const h = /^#{1,6} (.*)$/.exec(bloco);
+      if (h && linhas.length === 1) return `<p><b>${_mdInline(h[1])}</b></p>`;
+      return '<p>' + linhas.map(_mdInline).join('<br>') + '</p>';
+    }).join('');
+  }
+
+  function mdParaTexto(md) {
+    return String(md || '')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '$1 ($2)')
+      .replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, '$1')
+      .replace(/(^|[^*\w])\*(?=\S)([^*]*?\S)\*(?![*\w])/g, '$1$2')
+      .replace(/^#{1,6} /gm, '')
+      .replace(/^-{3,}$/gm, '');
   }
 
   function listarEventos(numero) {
@@ -1093,6 +1126,9 @@
     listarMovimentos,
     listarComunicacoes,
     obterTextoComunicacao,
+    FORMATO_MARKDOWN,
+    mdParaHtml,
+    mdParaTexto,
     listarEventos,
     agenda,
     agendaPassada,

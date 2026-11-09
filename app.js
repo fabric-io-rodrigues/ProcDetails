@@ -846,16 +846,22 @@
     if (sline) com.appendChild(el('div', { class: 'com-sub', text: sline }));
 
     const isLong = (c.texto_len || 0) > 300;
+    const isMd = c.formato_texto === Services.FORMATO_MARKDOWN;
     const preview = el('div', { class: 'com-preview' });
-    const txt = (c.preview || '').trim();
+    const txt = isMd ? Services.mdParaTexto(c.preview).replace(/\s+/g, ' ').trim() : (c.preview || '').trim();
     const previewText = el('span', { class: 'com-preview-text', text: txt + (isLong ? '… ' : '') });
     preview.appendChild(previewText);
     com.appendChild(preview);
 
-    const full = el('div', { class: 'com-full' }); full.style.display = 'none';
+    const full = el('div', { class: isMd ? 'com-full com-md' : 'com-full' }); full.style.display = 'none';
     let loaded = false;
     function expand() {
-      if (!loaded) { full.textContent = Services.obterTextoComunicacao(c.id) || '(texto vazio)'; loaded = true; }
+      if (!loaded) {
+        const texto = Services.obterTextoComunicacao(c.id);
+        if (isMd && texto) full.innerHTML = Services.mdParaHtml(texto);
+        else full.textContent = texto || '(texto vazio)';
+        loaded = true;
+      }
       full.style.display = 'block'; previewText.style.display = 'none'; if (moreBtn) moreBtn.textContent = 'Recolher texto';
     }
     function collapse() { full.style.display = 'none'; previewText.style.display = ''; if (moreBtn) moreBtn.textContent = 'Ver texto completo'; }

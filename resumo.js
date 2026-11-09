@@ -264,7 +264,7 @@
       mov: [{ runs: [{ t: `${c.tipo_comunicacao || 'Comunicação'} no DJEN`, b: true }] },
             ...(c.tipo_documento ? [{ runs: [{ t: c.tipo_documento }] }] : [])],
       det: [...(c.nome_orgao ? [{ runs: [{ t: c.nome_orgao, c: CINZA }] }] : []),
-            ...textoPlano(quebrasDjen(c.texto)).map((x, i) => (i === 0 && c.nome_orgao ? { ...x, antes: 0.8 } : x))],
+            ...textoPlano(c.formato_texto === Services.FORMATO_MARKDOWN ? Services.mdParaTexto(c.texto) : quebrasDjen(c.texto)).map((x, i) => (i === 0 && c.nome_orgao ? { ...x, antes: 0.8 } : x))],
     }));
     return [...movs, ...coms]
       .map((x, k) => ({ x, k }))
