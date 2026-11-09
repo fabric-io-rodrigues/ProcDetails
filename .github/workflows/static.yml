@@ -29,11 +29,12 @@ jobs:
 
       - name: Download bases cifradas das releases
         # uma base por grupo (<hash da senha>.enc, ver NotificacoesTJ/catalogo.py)
+        # + PDFs das decisões do grupo (<hash da senha>_decisoes.zip, entradas cifradas)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release download latest \
-            --pattern '*.enc' \
+            --pattern '*.enc' --pattern '*_decisoes.zip' \
             || echo "⚠️  Release 'latest' não encontrada — deploy sem base cifrada."
 
       - name: Setup Pages
