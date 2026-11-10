@@ -835,8 +835,13 @@
     try { links = m.links ? JSON.parse(m.links) : []; } catch (e) { links = []; }
     if (links.length || m.decisao) {
       const acts = el('div', { class: 'tl-links' });
-      if (m.decisao) acts.appendChild(el('button', { class: 'com-btn', type: 'button', title: 'Ver o PDF do ato assinado', html: TL_ICON.pdf + '<span>Ver ato (PDF)</span>', onclick: () => abrirDecisao(m, p) }));
-      links.forEach((l) => acts.appendChild(el('a', { class: 'com-btn', href: l.url, target: '_blank', rel: 'noopener', title: f.includes('DOMPRJ') ? 'Abrir no Diário Oficial (MPRJ)' : f.includes('DOERJ') ? 'Abrir no Diário Oficial (IOERJ)' : 'Abrir no DJERJ (TJRJ)', html: TL_ICON.ext + `<span>${esc(l.rotulo)}</span>` })));
+      if (m.decisao) acts.appendChild(el('button', { class: 'com-btn', type: 'button',
+        title: src === 'dje' ? 'Ver a página do diário (PDF)' : 'Ver o PDF do ato assinado',
+        html: TL_ICON.pdf + `<span>${src === 'dje' ? 'PDF' : 'Ver ato (PDF)'}</span>`, onclick: () => abrirDecisao(m, p) }));
+      const site = f.includes('DOMPRJ') ? 'no Diário Oficial (MPRJ)' : f.includes('DOERJ') ? 'no Diário Oficial (IOERJ)' : 'no DJERJ (TJRJ)';
+      links.forEach((l) => acts.appendChild(el('a', { class: 'com-btn', href: l.url, target: '_blank', rel: 'noopener',
+        title: (/^(Edição|Caderno)$/.test(l.rotulo) ? 'Abrir a edição completa ' : 'Abrir a página ') + site,
+        html: TL_ICON.ext + `<span>${esc(l.rotulo)}</span>` })));
       card.appendChild(acts);
     }
     return { card, src };
