@@ -1,5 +1,6 @@
 /* ============================================================================
-   resumo.js — Resumo do processo em PDF (capa + movimentos + PDF dos diários e atos), gerado no navegador.
+   resumo.js — Resumo do processo em PDF (capa + sumário + movimentos + anexos: PDF dos diários e atos),
+   gerado no navegador.
    Resumo.gerar(numero, etapa): etapa(i) avisa o início de cada fase
    (0 componentes, 1 dados, 2 documento, 3 anexos, 4 download).
    ============================================================================ */
@@ -15,7 +16,7 @@
 
   const PT = 25.4 / 72;
   const PAG = { w: 210, h: 297, esq: 20, topo: 20, base: 279 };
-  const COLS = [10, 21, 36, 103];
+  const COLS = [40, 130];
   const TAM = 8.5, LH = TAM * PT * 1.22, PAD = 1.4;
 
   const PDFLIB_URL = 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
@@ -255,11 +256,13 @@
 
   function itens(d) {
     const movs = d.movimentos.map((m) => {
-      const diario = DIARIOS.has(m.fonte);
+      const diario = DIARIOS.has(m.fonte), eproc = m.fonte === 'eproc';
       return {
         fonte: m.fonte, data: m.data_iso, diario,
-        mov: [{ runs: [{ t: diario ? `Publicação no ${m.fonte}` : (m.descricao || ''), b: true }] }],
-        det: diario ? textoPlano(desfazHifen(m.detalhe)) : detalheTjrj(m.detalhe),
+        mov: [{ runs: [{ t: diario ? `Publicação no ${m.fonte}` : eproc ? 'Movimento eProc' : (m.descricao || ''), b: true }] }],
+        det: diario ? textoPlano(desfazHifen(m.detalhe))
+          : eproc ? [{ runs: [{ t: m.descricao || '', b: true }] }, ...textoPlano(m.detalhe).map((x, i) => (i === 0 ? { ...x, antes: 1.3 } : x))]
+            : detalheTjrj(m.detalhe),
       };
     });
     const coms = d.comunicacoes.map((c) => ({
@@ -286,11 +289,11 @@
     return partes.length > 1 ? partes.slice(0, -1).join(', ') + ' e ' + partes[partes.length - 1] : partes.join('');
   }
 
-  function tabela(doc, lista) {
+  function tabela(doc, lista, rotulo) {
     const x0 = PAG.esq, largT = COLS.reduce((a, b) => a + b, 0);
     let y = PAG.topo;
 
-    const titulo = linhasDe(doc, [{ runs: [{ t: `Movimentos (${rotuloContagem(lista)})`, b: true, c: AZUL }] }], largT, 15);
+    const titulo = linhasDe(doc, [{ runs: [{ t: rotulo, b: true, c: AZUL }] }], largT, 15);
     y = desenharLinhas(doc, titulo, x0, y, largT, { tam: 15, lh: 15 * PT * 1.3 }) + 2.5;
 
     const cab = () => {
@@ -298,7 +301,7 @@
       doc.setFillColor(...AZUL); doc.rect(x0, y, largT, h, 'F');
       doc.setDrawColor(...BORDA); doc.setLineWidth(0.2);
       let cx = x0;
-      ['Nº', 'Data', 'Movimento', 'Detalhes'].forEach((t, i) => {
+      ['Movimento', 'Detalhes'].forEach((t, i) => {
         doc.rect(cx, y, COLS[i], h);
         fonte(doc, true, 9); doc.setTextColor(...BRANCO);
         doc.text(pdfTexto(t), cx + PAD + 0.4, y + 4.3);
@@ -315,7 +318,7 @@
       let cx = x0;
       celulas.forEach((ls, i) => {
         doc.rect(cx, y, COLS[i], h);
-        desenharLinhas(doc, ls, cx + PAD, y + PAD, COLS[i] - 2 * PAD, { centro: i === 0 });
+        desenharLinhas(doc, ls, cx + PAD, y + PAD, COLS[i] - 2 * PAD);
         cx += COLS[i];
       });
       y += h;
@@ -326,10 +329,9 @@
       const n = idx + 1;
       const fundo = it.diario ? AMARELO : (n % 2 === 0 ? ZEBRA : null);
       let resto = [
-        linhasDe(doc, [{ runs: [{ t: String(n) }] }], COLS[0] - 2 * PAD),
-        linhasDe(doc, [{ runs: [{ t: br(it.data) }] }], COLS[1] - 2 * PAD),
-        linhasDe(doc, it.mov, COLS[2] - 2 * PAD),
-        linhasDe(doc, it.det.length ? it.det : [{ runs: [{ t: '' }] }], COLS[3] - 2 * PAD),
+        linhasDe(doc, [{ runs: [{ t: `${n} - `, b: true, c: CINZA }, { t: br(it.data) }] },
+                       ...it.mov.map((p, i) => (i === 0 ? { ...p, antes: 0.6 } : p))], COLS[0] - 2 * PAD),
+        linhasDe(doc, it.det.length ? it.det : [{ runs: [{ t: '' }] }], COLS[1] - 2 * PAD),
       ];
       let inteira = true;
       for (;;) {
@@ -367,25 +369,55 @@
     }
   }
 
-  /* ------------------------------------------------ anexos (pdf-lib)
-     PDF do zip de decisões, em ordem de data: páginas dos diários e atos (GED do TJRJ / eproc).
-     Cada página original entra (vetorial) numa página A4 com o título do item, como no relatório .py. */
+  /* ------------------------------------------- anexos e sumário (pdf-lib)
+     Anexos: PDF do zip de decisões (páginas dos diários e atos do GED do TJRJ / eproc), juntos em ordem
+     de data. Cada página original entra (vetorial) numa página A4 com o título do item, como no relatório
+     .py. O sumário ocupa páginas reservadas pelo jsPDF logo após a capa e é preenchido no fim, quando as
+     páginas dos anexos já são conhecidas. */
   const MM = 72 / 25.4;
   const RGB = (c) => window.PDFLib.rgb(c[0] / 255, c[1] / 255, c[2] / 255);
   const FONTES_DIARIO = new Set(['DJERJ', 'DOERJ', 'DOMPRJ']);
+  const RE_TIPO_ATO = /^(Despacho|Decisão|Sentença)[^:\n]*:/m;
 
-  function secoesAnexos(movimentos) {
-    const com = movimentos.filter((m) => m.decisao);
-    const item = (m) => ({
-      decisao: m.decisao,
-      titulo: `${br(m.data_iso)} — ${m.descricao || 'Ato'}`,
-      sub: FONTES_DIARIO.has(m.fonte) ? `${m.fonte}${m.data_original ? ' · ' + m.data_original : ''}`
-        : m.fonte === 'eproc' ? 'eproc (consulta pública)' : 'TJRJ — ato assinado (GED)',
+  function listaAnexos(movimentos) {
+    return movimentos.filter((m) => m.decisao)
+      .map((m, k) => ({ m, k }))
+      .sort((a, b) => ((a.m.data_iso || '') < (b.m.data_iso || '') ? -1 : (a.m.data_iso || '') > (b.m.data_iso || '') ? 1 : a.k - b.k))
+      .map(({ m }) => {
+        const diario = FONTES_DIARIO.has(m.fonte);
+        const tipo = diario ? `Publicação no ${m.fonte}`
+          : m.fonte === 'eproc' ? (m.descricao || 'Ato') : ((RE_TIPO_ATO.exec(m.detalhe || '') || [])[1] || m.descricao || 'Ato');
+        return {
+          decisao: m.decisao,
+          titulo: `${br(m.data_iso)} — ${tipo}`,
+          sub: diario ? [m.data_original, m.descricao].filter(Boolean).join(' · ')
+            : m.fonte === 'eproc' ? 'eproc (consulta pública)' : 'TJRJ — ato assinado (GED)',
+        };
+      });
+  }
+
+  function entradasSumario(rotuloMov, anexos) {
+    const e = [{ txt: 'Capa', alvo: 'capa' }, { txt: 'Sumário', alvo: 'sumario' }];
+    if (rotuloMov) e.push({ txt: rotuloMov, alvo: 'movimentos' });
+    if (anexos.length) e.push({ txt: `Anexos (${anexos.length})`, alvo: 'anexos' });
+    e.forEach((x, i) => { x.txt = `${i + 1}. ${x.txt}`; x.nivel = 1; });
+    const n = e.length;
+    anexos.forEach((a, i) => { a.titulo = `${n}.${i + 1}. ${a.titulo}`; e.push({ txt: a.titulo, alvo: i, nivel: 2 }); });
+    return e;
+  }
+
+  const SUM = { tit: 15, n1: 11, n2: 9, recuo: 8 * MM };
+  function layoutSumario(entradas) {
+    const topo = PAG.topo * MM, lim = PAG.base * MM;
+    let pg = 0, y = topo + SUM.tit * 1.3 + 4 * MM;
+    const pos = entradas.map((e) => {
+      const h = e.nivel === 1 ? SUM.n1 * 1.25 + 5 : SUM.n2 * 1.25 + 1.5;
+      if (y + h > lim) { pg++; y = topo; }
+      const p = { pg, y };
+      y += h;
+      return p;
     });
-    return [
-      { titulo: 'Publicações nos diários', itens: com.filter((m) => FONTES_DIARIO.has(m.fonte)).map(item) },
-      { titulo: 'Atos do processo', itens: com.filter((m) => !FONTES_DIARIO.has(m.fonte)).map(item) },
-    ].filter((s) => s.itens.length);
+    return { pos, paginas: pg + 1 };
   }
 
   function quebrarPdfLib(font, texto, tam, larg) {
@@ -398,7 +430,14 @@
     return atual ? [...linhas, atual] : linhas;
   }
 
-  async function anexar(bytes, secoes, cnj) {
+  function linkInterno(out, page, rect, destino) {
+    const ref = out.context.register(out.context.obj({
+      Type: 'Annot', Subtype: 'Link', Rect: rect, Border: [0, 0, 0], Dest: [destino.ref, 'XYZ', null, null, null],
+    }));
+    page.node.addAnnot(ref);
+  }
+
+  async function montarPdf(bytes, { cnj, anexos, entradas, layout, pagSumario, pagMovimentos }) {
     const { PDFDocument, StandardFonts } = window.PDFLib;
     const out = await PDFDocument.load(bytes);
     const normal = await out.embedFont(StandardFonts.Helvetica);
@@ -419,32 +458,57 @@
       return y;
     };
 
-    for (const sec of secoes) {
-      for (const [i, it] of sec.itens.entries()) {
-        let paginas = [], erro = null;
-        try {
-          const src = await PDFDocument.load(await (await Services.obterDecisao(it.decisao)).arrayBuffer(), { ignoreEncryption: true });
-          paginas = await out.embedPages(src.getPages());
-        } catch (e) {
-          erro = e.message || String(e);
+    const inicio = [];
+    const tituloAnexos = entradas.find((e) => e.alvo === 'anexos');
+    for (const [i, it] of anexos.entries()) {
+      let paginas = [], erro = null;
+      try {
+        const src = await PDFDocument.load(await (await Services.obterDecisao(it.decisao)).arrayBuffer(), { ignoreEncryption: true });
+        paginas = await out.embedPages(src.getPages());
+      } catch (e) {
+        erro = e.message || String(e);
+      }
+      inicio.push(out.getPageCount());
+      for (let k = 0; k < Math.max(1, paginas.length); k++) {
+        const pg = novaPagina();
+        let y = PAG.topo * MM;
+        if (i === 0 && k === 0) y = texto(pg, y, quebrarPdfLib(negrito, tituloAnexos.txt, 15, larg), negrito, 15, AZUL) + 3 * MM;
+        if (k === 0) {
+          y = texto(pg, y, quebrarPdfLib(negrito, it.titulo, 11.5, larg), negrito, 11.5, AZUL);
+          y = texto(pg, y, quebrarPdfLib(normal, it.sub, 9, larg), normal, 9, CINZA) + 2 * MM;
         }
-        for (let k = 0; k < Math.max(1, paginas.length); k++) {
-          const pg = novaPagina();
-          let y = PAG.topo * MM;
-          if (i === 0 && k === 0) y = texto(pg, y, quebrarPdfLib(negrito, `${sec.titulo} (${sec.itens.length})`, 15, larg), negrito, 15, AZUL) + 3 * MM;
-          if (k === 0) {
-            y = texto(pg, y, quebrarPdfLib(negrito, it.titulo, 11.5, larg), negrito, 11.5, AZUL);
-            y = texto(pg, y, quebrarPdfLib(normal, it.sub, 9, larg), normal, 9, CINZA) + 2 * MM;
-          }
-          if (erro) { texto(pg, y, quebrarPdfLib(normal, `(PDF não anexado: ${erro})`, 9.5, larg), normal, 9.5, CINZA); continue; }
-          const emb = paginas[k], alt = H - y - fundo;
-          const s = Math.min(larg / emb.width, alt / emb.height);
-          const w = emb.width * s, h = emb.height * s, x = x0 + (larg - w) / 2;
-          pg.drawPage(emb, { x, y: H - y - h, width: w, height: h });
-          pg.drawRectangle({ x, y: H - y - h, width: w, height: h, borderColor: RGB(BORDA), borderWidth: 0.5 });
-        }
+        if (erro) { texto(pg, y, quebrarPdfLib(normal, `(PDF não anexado: ${erro})`, 9.5, larg), normal, 9.5, CINZA); continue; }
+        const emb = paginas[k], alt = H - y - fundo;
+        const s = Math.min(larg / emb.width, alt / emb.height);
+        const w = emb.width * s, h = emb.height * s, x = x0 + (larg - w) / 2;
+        pg.drawPage(emb, { x, y: H - y - h, width: w, height: h });
+        pg.drawRectangle({ x, y: H - y - h, width: w, height: h, borderColor: RGB(BORDA), borderWidth: 0.5 });
       }
     }
+
+    const pages = out.getPages();
+    const destino = { capa: 0, sumario: pagSumario, movimentos: pagMovimentos, anexos: inicio[0] };
+    pages[pagSumario].drawText('Sumário', { x: x0, y: H - PAG.topo * MM - SUM.tit, size: SUM.tit, font: negrito, color: RGB(AZUL) });
+    const xr = W - x0, ponto = normal.widthOfTextAtSize('.', SUM.n2);
+    entradas.forEach((e, k) => {
+      const { pg, y } = layout.pos[k];
+      const page = pages[pagSumario + pg];
+      const n1 = e.nivel === 1, tam = n1 ? SUM.n1 : SUM.n2, font = n1 ? negrito : normal;
+      const alvo = typeof e.alvo === 'number' ? inicio[e.alvo] : destino[e.alvo];
+      const num = String(alvo + 1), wn = font.widthOfTextAtSize(num, tam);
+      const x = x0 + (n1 ? 0 : SUM.recuo), maxw = xr - wn - 10 - x;
+      let txt = pdfTexto(e.txt);
+      if (font.widthOfTextAtSize(txt, tam) > maxw) {
+        while (txt && font.widthOfTextAtSize(txt + '…', tam) > maxw) txt = txt.slice(0, -1);
+        txt = txt.trimEnd() + '…';
+      }
+      const yb = H - y - tam;
+      page.drawText(txt, { x, y: yb, size: tam, font, color: RGB(n1 ? AZUL : PRETO) });
+      const ini = x + font.widthOfTextAtSize(txt, tam) + 3, fim = xr - wn - 3, nPontos = Math.floor((fim - ini) / ponto);
+      if (nPontos > 0) page.drawText('.'.repeat(nPontos), { x: fim - nPontos * ponto, y: yb, size: SUM.n2, font: normal, color: RGB(CINZA) });
+      page.drawText(num, { x: xr - wn, y: yb, size: tam, font, color: RGB(PRETO) });
+      linkInterno(out, page, [x, yb - 2, xr, yb + tam], pages[alvo]);
+    });
     return out.save();
   }
 
@@ -481,17 +545,18 @@
     doc.setProperties({ title: `Resumo do processo ${d.cnj}`, creator: 'ProcDetails' });
     capa(doc, d);
     const lista = itens(d);
-    if (lista.length) { doc.addPage(); tabela(doc, lista); }
+    const anexos = listaAnexos(d.movimentos);
+    const entradas = entradasSumario(lista.length ? `Movimentos (${rotuloContagem(lista)})` : '', anexos);
+    const layout = layoutSumario(entradas);
+    const pagSumario = doc.getNumberOfPages();
+    for (let i = 0; i < layout.paginas; i++) doc.addPage();
+    const pagMovimentos = doc.getNumberOfPages();
+    if (lista.length) { doc.addPage(); tabela(doc, lista, entradas.find((e) => e.alvo === 'movimentos').txt); }
     cabecalhosERodapes(doc, d.cnj);
 
     etapa(3);
-    await proximoQuadro();
-    const secoes = secoesAnexos(d.movimentos);
-    let bytes = doc.output('arraybuffer');
-    if (secoes.length) {
-      await carregarScript(PDFLIB_URL, 'PDFLib');
-      bytes = await anexar(bytes, secoes, d.cnj);
-    }
+    await carregarScript(PDFLIB_URL, 'PDFLib');
+    const bytes = await montarPdf(doc.output('arraybuffer'), { cnj: d.cnj, anexos, entradas, layout, pagSumario, pagMovimentos });
 
     etapa(4);
     await proximoQuadro();
