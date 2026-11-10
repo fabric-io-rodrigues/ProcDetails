@@ -763,6 +763,10 @@ button.com-btn { font-family: inherit; cursor: pointer; }
 .resumo-etapas li.erro { color: #B42318; font-weight: 600; }
 .resumo-etapas li.erro::before { content: '!'; border: 0; background: #B42318; color: #fff; }
 .resumo-erro { margin: 14px 0 0; color: #B42318; font-size: 13px; }
+.resumo-opcoes { display: grid; gap: 8px; margin: 6px 0 4px; font-size: 13.5px; }
+.resumo-opcao { display: flex; align-items: center; gap: 9px; cursor: pointer; color: var(--ink); }
+.resumo-opcao input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.resumo-opcoes + .resumo-etapas { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
 @keyframes resumo-gira { to { transform: rotate(360deg); } }
 
 /* tags hierárquicas (Família/Guarda): separador suave, folha em destaque */

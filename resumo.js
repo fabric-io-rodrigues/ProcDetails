@@ -1,8 +1,8 @@
 /* ============================================================================
    resumo.js — Resumo do processo em PDF (capa + sumário + movimentos + anexos: PDF dos diários e atos),
    gerado no navegador.
-   Resumo.gerar(numero, etapa): etapa(i) avisa o início de cada fase
-   (0 componentes, 1 dados, 2 documento, 3 anexos, 4 download).
+   Resumo.gerar(numero, etapa, { diarios, atos }): etapa(i) avisa o início de cada fase
+   (0 componentes, 1 dados, 2 documento, 3 anexos, 4 download); diarios/atos = incluir os PDF (padrão: sim).
    ============================================================================ */
 (function () {
   'use strict';
@@ -379,8 +379,8 @@
   const FONTES_DIARIO = new Set(['DJERJ', 'DOERJ', 'DOMPRJ']);
   const RE_TIPO_ATO = /^(Despacho|Decisão|Sentença)[^:\n]*:/m;
 
-  function listaAnexos(movimentos) {
-    return movimentos.filter((m) => m.decisao)
+  function listaAnexos(movimentos, { diarios = true, atos = true } = {}) {
+    return movimentos.filter((m) => m.decisao && (FONTES_DIARIO.has(m.fonte) ? diarios : atos))
       .map((m, k) => ({ m, k }))
       .sort((a, b) => ((a.m.data_iso || '') < (b.m.data_iso || '') ? -1 : (a.m.data_iso || '') > (b.m.data_iso || '') ? 1 : a.k - b.k))
       .map(({ m }) => {
@@ -521,7 +521,7 @@
   }
 
   /* ---------------------------------------------------------- entrada */
-  async function gerar(numero, etapa = () => {}) {
+  async function gerar(numero, etapa = () => {}, opcoes = {}) {
     etapa(0);
     await carregarJsPDF();
 
@@ -545,7 +545,7 @@
     doc.setProperties({ title: `Resumo do processo ${d.cnj}`, creator: 'ProcDetails' });
     capa(doc, d);
     const lista = itens(d);
-    const anexos = listaAnexos(d.movimentos);
+    const anexos = listaAnexos(d.movimentos, opcoes);
     const entradas = entradasSumario(lista.length ? `Movimentos (${rotuloContagem(lista)})` : '', anexos);
     const layout = layoutSumario(entradas);
     const pagSumario = doc.getNumberOfPages();

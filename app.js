@@ -65,26 +65,51 @@
     const card = el('div', { class: 'modal-card' });
     card.appendChild(el('h3', { class: 'modal-title', text: 'Resumo do processo' }));
     card.appendChild(el('p', { class: 'modal-sub', text: fmtCNJ(p.numero, p.cnj) }));
+    const check = (rotulo) => {
+      const input = el('input', { type: 'checkbox' });
+      input.checked = true;
+      return { input, label: el('label', { class: 'resumo-opcao' }, [input, rotulo]) };
+    };
+    const optDo = check("Incluir PDF's DO"), optDec = check("Incluir PDF's Decisões");
+    card.appendChild(el('div', { class: 'resumo-opcoes' }, [optDo.label, optDec.label]));
     const lista = el('ul', { class: 'resumo-etapas' });
     const itens = ETAPAS_RESUMO.map((t) => lista.appendChild(el('li', { text: t })));
-    card.appendChild(lista);
+    const acts = el('div', { class: 'modal-actions' });
+    const cancelar = el('button', { class: 'btn', type: 'button', text: 'Cancelar' });
+    const gerarBtn = el('button', { class: 'btn primary', type: 'button', text: 'Gerar relatório' });
+    acts.append(cancelar, gerarBtn);
+    card.append(acts);
     overlay.appendChild(card);
     document.body.appendChild(overlay);
     requestAnimationFrame(() => overlay.classList.add('show'));
-    const fechar = () => { overlay.classList.remove('show'); setTimeout(() => overlay.remove(), 160); };
-    let atual = 0;
-    const marcar = (i) => { atual = i; itens.forEach((li, k) => { li.className = k < i ? 'ok' : k === i ? 'atual' : ''; }); };
-    try {
-      await Resumo.gerar(p.numero, marcar);
-      marcar(ETAPAS_RESUMO.length);
-      setTimeout(fechar, 1000);
-    } catch (e) {
-      itens[atual].className = 'erro';
-      card.appendChild(el('p', { class: 'resumo-erro', text: e.message || String(e) }));
-      const acts = el('div', { class: 'modal-actions' });
-      acts.appendChild(el('button', { class: 'btn', type: 'button', text: 'Fechar', onclick: fechar }));
-      card.appendChild(acts);
-    }
+    let rodando = false;
+    const fechar = () => { document.removeEventListener('keydown', onKey); overlay.classList.remove('show'); setTimeout(() => overlay.remove(), 160); };
+    function onKey(e) { if (e.key === 'Escape' && !rodando) fechar(); }
+    document.addEventListener('keydown', onKey);
+    cancelar.addEventListener('click', fechar);
+    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay && !rodando) fechar(); });
+
+    gerarBtn.addEventListener('click', async () => {
+      rodando = true;
+      optDo.input.disabled = optDec.input.disabled = true;
+      acts.remove();
+      card.appendChild(lista);
+      let atual = 0;
+      const marcar = (i) => { atual = i; itens.forEach((li, k) => { li.className = k < i ? 'ok' : k === i ? 'atual' : ''; }); };
+      try {
+        await Resumo.gerar(p.numero, marcar, { diarios: optDo.input.checked, atos: optDec.input.checked });
+        marcar(ETAPAS_RESUMO.length);
+        rodando = false;
+        setTimeout(fechar, 1000);
+      } catch (e) {
+        rodando = false;
+        itens[atual].className = 'erro';
+        card.appendChild(el('p', { class: 'resumo-erro', text: e.message || String(e) }));
+        const fim = el('div', { class: 'modal-actions' });
+        fim.appendChild(el('button', { class: 'btn', type: 'button', text: 'Fechar', onclick: fechar }));
+        card.appendChild(fim);
+      }
+    });
   }
 
   /* ------------------------- modal de tags ----------------------------- */
