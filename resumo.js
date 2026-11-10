@@ -1,7 +1,7 @@
 /* ============================================================================
-   resumo.js — Resumo do processo em PDF (capa + movimentos), gerado no navegador.
+   resumo.js — Resumo do processo em PDF (capa + movimentos + PDF dos diários e atos), gerado no navegador.
    Resumo.gerar(numero, etapa): etapa(i) avisa o início de cada fase
-   (0 componentes, 1 dados, 2 documento, 3 download).
+   (0 componentes, 1 dados, 2 documento, 3 anexos, 4 download).
    ============================================================================ */
 (function () {
   'use strict';
@@ -18,19 +18,22 @@
   const COLS = [10, 21, 36, 103];
   const TAM = 8.5, LH = TAM * PT * 1.22, PAD = 1.4;
 
-  let _jspdf = null;
-  function carregarJsPDF() {
-    if (window.jspdf) return Promise.resolve();
-    if (_jspdf) return _jspdf;
-    _jspdf = new Promise((resolve, reject) => {
+  const PDFLIB_URL = 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
+
+  const _scripts = {};
+  function carregarScript(url, global) {
+    if (window[global]) return Promise.resolve();
+    if (_scripts[url]) return _scripts[url];
+    _scripts[url] = new Promise((resolve, reject) => {
       const s = document.createElement('script');
-      s.src = JSPDF_URL;
+      s.src = url;
       s.onload = resolve;
-      s.onerror = () => { _jspdf = null; reject(new Error('Falha ao carregar o gerador de PDF (sem conexão?)')); };
+      s.onerror = () => { delete _scripts[url]; reject(new Error('Falha ao carregar o gerador de PDF (sem conexão?)')); };
       document.head.appendChild(s);
     });
-    return _jspdf;
+    return _scripts[url];
   }
+  const carregarJsPDF = () => carregarScript(JSPDF_URL, 'jspdf');
 
   const proximoQuadro = () => new Promise((r) => setTimeout(r, 30));
 
@@ -364,6 +367,95 @@
     }
   }
 
+  /* ------------------------------------------------ anexos (pdf-lib)
+     PDF do zip de decisões, em ordem de data: páginas dos diários e atos (GED do TJRJ / eproc).
+     Cada página original entra (vetorial) numa página A4 com o título do item, como no relatório .py. */
+  const MM = 72 / 25.4;
+  const RGB = (c) => window.PDFLib.rgb(c[0] / 255, c[1] / 255, c[2] / 255);
+  const FONTES_DIARIO = new Set(['DJERJ', 'DOERJ', 'DOMPRJ']);
+
+  function secoesAnexos(movimentos) {
+    const com = movimentos.filter((m) => m.decisao);
+    const item = (m) => ({
+      decisao: m.decisao,
+      titulo: `${br(m.data_iso)} — ${m.descricao || 'Ato'}`,
+      sub: FONTES_DIARIO.has(m.fonte) ? `${m.fonte}${m.data_original ? ' · ' + m.data_original : ''}`
+        : m.fonte === 'eproc' ? 'eproc (consulta pública)' : 'TJRJ — ato assinado (GED)',
+    });
+    return [
+      { titulo: 'Publicações nos diários', itens: com.filter((m) => FONTES_DIARIO.has(m.fonte)).map(item) },
+      { titulo: 'Atos do processo', itens: com.filter((m) => !FONTES_DIARIO.has(m.fonte)).map(item) },
+    ].filter((s) => s.itens.length);
+  }
+
+  function quebrarPdfLib(font, texto, tam, larg) {
+    const linhas = [];
+    let atual = '';
+    for (const pal of pdfTexto(texto).split(/\s+/).filter(Boolean)) {
+      const t = atual ? atual + ' ' + pal : pal;
+      if (atual && font.widthOfTextAtSize(t, tam) > larg) { linhas.push(atual); atual = pal; } else atual = t;
+    }
+    return atual ? [...linhas, atual] : linhas;
+  }
+
+  async function anexar(bytes, secoes, cnj) {
+    const { PDFDocument, StandardFonts } = window.PDFLib;
+    const out = await PDFDocument.load(bytes);
+    const normal = await out.embedFont(StandardFonts.Helvetica);
+    const negrito = await out.embedFont(StandardFonts.HelveticaBold);
+    const W = PAG.w * MM, H = PAG.h * MM, x0 = PAG.esq * MM, larg = W - 2 * x0, fundo = (PAG.h - PAG.base) * MM;
+
+    const novaPagina = () => {
+      const pg = out.addPage([W, H]);
+      const num = String(out.getPageCount());
+      pg.drawText(pdfTexto(cnj), { x: W - x0 - negrito.widthOfTextAtSize(cnj, 8), y: H - 12 * MM, size: 8, font: negrito, color: RGB(CINZA) });
+      const wn = negrito.widthOfTextAtSize(num, 8);
+      pg.drawText(num, { x: W - x0 - wn, y: 9 * MM, size: 8, font: negrito, color: RGB(PRETO) });
+      pg.drawText('Fls.', { x: W - x0 - wn - 1 * MM - normal.widthOfTextAtSize('Fls.', 8), y: 9 * MM, size: 8, font: normal, color: RGB(CINZA) });
+      return pg;
+    };
+    const texto = (pg, y, linhas, font, tam, cor) => {
+      for (const l of linhas) { y += tam * 1.25; pg.drawText(l, { x: x0, y: H - y, size: tam, font, color: RGB(cor) }); }
+      return y;
+    };
+
+    for (const sec of secoes) {
+      for (const [i, it] of sec.itens.entries()) {
+        let paginas = [], erro = null;
+        try {
+          const src = await PDFDocument.load(await (await Services.obterDecisao(it.decisao)).arrayBuffer(), { ignoreEncryption: true });
+          paginas = await out.embedPages(src.getPages());
+        } catch (e) {
+          erro = e.message || String(e);
+        }
+        for (let k = 0; k < Math.max(1, paginas.length); k++) {
+          const pg = novaPagina();
+          let y = PAG.topo * MM;
+          if (i === 0 && k === 0) y = texto(pg, y, quebrarPdfLib(negrito, `${sec.titulo} (${sec.itens.length})`, 15, larg), negrito, 15, AZUL) + 3 * MM;
+          if (k === 0) {
+            y = texto(pg, y, quebrarPdfLib(negrito, it.titulo, 11.5, larg), negrito, 11.5, AZUL);
+            y = texto(pg, y, quebrarPdfLib(normal, it.sub, 9, larg), normal, 9, CINZA) + 2 * MM;
+          }
+          if (erro) { texto(pg, y, quebrarPdfLib(normal, `(PDF não anexado: ${erro})`, 9.5, larg), normal, 9.5, CINZA); continue; }
+          const emb = paginas[k], alt = H - y - fundo;
+          const s = Math.min(larg / emb.width, alt / emb.height);
+          const w = emb.width * s, h = emb.height * s, x = x0 + (larg - w) / 2;
+          pg.drawPage(emb, { x, y: H - y - h, width: w, height: h });
+          pg.drawRectangle({ x, y: H - y - h, width: w, height: h, borderColor: RGB(BORDA), borderWidth: 0.5 });
+        }
+      }
+    }
+    return out.save();
+  }
+
+  function baixar(bytes, nome) {
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = nome;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
   /* ---------------------------------------------------------- entrada */
   async function gerar(numero, etapa = () => {}) {
     etapa(0);
@@ -394,7 +486,16 @@
 
     etapa(3);
     await proximoQuadro();
-    doc.save(`Resumo_${d.cnj}.pdf`);
+    const secoes = secoesAnexos(d.movimentos);
+    let bytes = doc.output('arraybuffer');
+    if (secoes.length) {
+      await carregarScript(PDFLIB_URL, 'PDFLib');
+      bytes = await anexar(bytes, secoes, d.cnj);
+    }
+
+    etapa(4);
+    await proximoQuadro();
+    baixar(bytes, `Resumo_${d.cnj}.pdf`);
   }
 
   window.Resumo = { gerar, paragrafosTjrj: detalheTjrj };

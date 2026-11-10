@@ -59,7 +59,7 @@
   }
 
   /* ------------------------- resumo em PDF ----------------------------- */
-  const ETAPAS_RESUMO = ['Carregando componentes…', 'Lendo os dados do processo…', 'Montando o documento…', 'Pronto! Baixando o PDF.'];
+  const ETAPAS_RESUMO = ['Carregando componentes…', 'Lendo os dados do processo…', 'Montando o documento…', 'Anexando os PDF dos diários e atos…', 'Pronto! Baixando o PDF.'];
   async function gerarResumo(p) {
     const overlay = el('div', { class: 'modal-overlay' });
     const card = el('div', { class: 'modal-card' });
