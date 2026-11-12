@@ -277,12 +277,13 @@
     }
     return _colsTabela[tabela].has(col);
   }
-  const _djeCol = (pfx = '') => (_temCol('processos', 'n_movimentos_dje') ? `, ${pfx}n_movimentos_dje` : '');
+  const _colsOpc = (pfx = '') => ['n_movimentos_dje', 'segredo', 'nivel_sigilo']
+    .filter((c) => _temCol('processos', c)).map((c) => `, ${pfx}${c}`).join('');
 
   /* ----------------------------------------------------------- 1. Lista */
   function listarProcessos({ busca = '', classe = '' } = {}) {
     const cols = `p.numero, p.cnj, p.classe, p.orgao, p.assunto, p.advogados, p.partes,
-                  p.n_comunicacoes, p.n_movimentos_tj, p.n_movimentos_mp, p.n_movimentos_pje, p.n_movimentos_datajud${_djeCol('p.')}, p.n_eventos_ia,
+                  p.n_comunicacoes, p.n_movimentos_tj, p.n_movimentos_mp, p.n_movimentos_pje, p.n_movimentos_datajud${_colsOpc('p.')}, p.n_eventos_ia,
                   p.data_ultima_com, p.data_ultimo_mov`;
     const expr = ftsExpr(busca);
     const where = [];
@@ -460,7 +461,7 @@
     if (nums) return buscarDoisAdvogados(termo, null);
     return query(
       `SELECT numero, cnj, classe, orgao, assunto, advogados, partes,
-              n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje, n_movimentos_datajud${_djeCol()}, n_eventos_ia,
+              n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje, n_movimentos_datajud${_colsOpc()}, n_eventos_ia,
               data_ultima_com, data_ultimo_mov
        FROM processos
        WHERE advogados LIKE '%' || ? || '%'
@@ -474,7 +475,7 @@
     if (na && (termoB == null || nb)) {
       return query(
         `SELECT numero, cnj, classe, orgao, assunto, advogados, partes,
-                n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje, n_movimentos_datajud${_djeCol()}, n_eventos_ia,
+                n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje, n_movimentos_datajud${_colsOpc()}, n_eventos_ia,
                 data_ultima_com, data_ultimo_mov
          FROM processos
          ORDER BY data_ultima_com DESC NULLS LAST`
@@ -482,7 +483,7 @@
     }
     return query(
       `SELECT numero, cnj, classe, orgao, assunto, advogados, partes,
-              n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje, n_movimentos_datajud${_djeCol()}, n_eventos_ia,
+              n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje, n_movimentos_datajud${_colsOpc()}, n_eventos_ia,
               data_ultima_com, data_ultimo_mov
        FROM processos
        WHERE advogados LIKE '%' || ? || '%'
@@ -739,7 +740,7 @@
     const ph = nums.map(() => '?').join(',');
     return query(
       `SELECT numero, cnj, classe, orgao, assunto, advogados, partes,
-              n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje, n_movimentos_datajud${_djeCol()}, n_eventos_ia,
+              n_comunicacoes, n_movimentos_tj, n_movimentos_mp, n_movimentos_pje, n_movimentos_datajud${_colsOpc()}, n_eventos_ia,
               data_ultima_com, data_ultimo_mov
        FROM processos WHERE numero IN (${ph})
        ORDER BY data_ultima_com DESC NULLS LAST`,
@@ -1142,24 +1143,32 @@
   }
 
   /* ----------------------------------------------------- 6. Busca geral */
+  // nº do processo com ou sem máscara CNJ, inteiro ou em trecho: busca pelos dígitos
+  function _digitosNumero(q) {
+    const s = String(q || '').trim(), d = s.replace(/\D/g, '');
+    return /^[\d.\-\s]+$/.test(s) && d.length >= 4 ? d : '';
+  }
+
   function buscaGeral(q) {
-    const expr = ftsExpr(q);
-    if (!expr) return [];
+    const expr = ftsExpr(q), dig = _digitosNumero(q);
+    if (!expr && !dig) return [];
     const cols = `p.numero, p.cnj, p.classe, p.orgao, p.assunto, p.advogados, p.partes,
-                  p.n_comunicacoes, p.n_movimentos_tj, p.n_movimentos_mp, p.n_movimentos_pje, p.n_movimentos_datajud${_djeCol('p.')}, p.n_eventos_ia,
+                  p.n_comunicacoes, p.n_movimentos_tj, p.n_movimentos_mp, p.n_movimentos_pje, p.n_movimentos_datajud${_colsOpc('p.')}, p.n_eventos_ia,
                   p.data_ultima_com, p.data_ultimo_mov`;
+    const fontes = [], params = [];
+    if (expr) {
+      fontes.push(`SELECT numero_processo AS numero FROM comunicacoes_fts WHERE comunicacoes_fts MATCH ?`,
+                  `SELECT numero_processo AS numero FROM movimentos_fts   WHERE movimentos_fts   MATCH ?`,
+                  `SELECT numero          AS numero FROM processos_fts    WHERE processos_fts    MATCH ?`);
+      params.push(expr, expr, expr);
+    }
+    if (dig) { fontes.push(`SELECT numero FROM processos WHERE numero LIKE '%' || ? || '%'`); params.push(dig, dig); }
     return query(
-      `WITH hits AS (
-         SELECT DISTINCT numero_processo AS numero FROM comunicacoes_fts WHERE comunicacoes_fts MATCH ?
-         UNION
-         SELECT DISTINCT numero_processo AS numero FROM movimentos_fts   WHERE movimentos_fts   MATCH ?
-         UNION
-         SELECT DISTINCT numero          AS numero FROM processos_fts    WHERE processos_fts    MATCH ?
-       )
+      `WITH hits AS (${fontes.join(' UNION ')})
        SELECT ${cols}
        FROM processos p JOIN hits h ON h.numero = p.numero
-       ORDER BY p.data_ultima_com DESC NULLS LAST`,
-      [expr, expr, expr]
+       ORDER BY ${dig ? `p.numero LIKE '%' || ? || '%' DESC, ` : ''}p.data_ultima_com DESC NULLS LAST`,
+      params
     );
   }
 

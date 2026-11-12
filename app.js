@@ -229,8 +229,21 @@
   }
 
   /* ------------------------------ badges ------------------------------- */
+  // segredo: 'Sim'/'Não' (TJRJ, Ejud, DataJud, DJEN); nivel_sigilo: 0–5 da classificação CNJ, quando a fonte informa
+  function badgeSigilo(p, completo) {
+    const n = p.nivel_sigilo > 0 ? p.nivel_sigilo : 0;
+    if (p.segredo !== 'Sim' && !n) return null;
+    const tip = 'Segredo de justiça' + (n ? ` (nível ${n})` : '');
+    const b = el('span', { class: 'badge sigilo', title: tip, html: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="7" width="9" height="6.5" rx="1.2"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/></svg>' });
+    b.appendChild(document.createTextNode(completo ? tip.replace(` (nível ${n})`, '') : 'Sigilo'));
+    if (n) b.appendChild(el('span', { class: 'n', text: 'nível ' + n }));
+    return b;
+  }
+
   function badgesProc(p) {
     const wrap = el('span', { class: 'badges' });
+    const sig = badgeSigilo(p);
+    if (sig) wrap.appendChild(sig);
     const add = (cls, label, n) => { if (n > 0) wrap.appendChild(el('span', { class: 'badge ' + cls, html: `${label}<span class="n">${n}</span>` })); };
     add('djen', 'DJEN', p.n_comunicacoes);
     add('tjrj', 'TJRJ', p.n_movimentos_tj);
@@ -377,6 +390,8 @@
       const headRow = el('div', { class: 'sr-headrow' });
       const head = el('a', { class: 'sr-head', href: procHref(p.numero, goQ), title: lp.tip });
       head.appendChild(el('div', { class: 'sr-url', text: [fmtCNJ(p.numero, p.cnj), lp.sub].filter(Boolean).join(' · ') }));
+      const sig = badgeSigilo(p);
+      if (sig) head.appendChild(sig);
       head.appendChild(el('div', { class: 'sr-title' + (lp.segredo ? ' segredo' : ''), text: lp.main }));
       headRow.append(head, starBtn(p));
       item.appendChild(headRow);
@@ -605,7 +620,10 @@
 
     const main = el('div', { class: 'dh-main' });
     const title = el('div', { class: 'dh-title' });
-    title.appendChild(el('div', { class: 'dh-cnj', text: fmtCNJ(p.numero, p.cnj) }));
+    const cnjRow = el('div', { class: 'dh-cnj', text: fmtCNJ(p.numero, p.cnj) });
+    const sigD = badgeSigilo(p, true);
+    if (sigD) cnjRow.appendChild(sigD);
+    title.appendChild(cnjRow);
     const lp = linhasProc(p);
     if (lp.titulo) title.appendChild(el('div', { class: 'dh-partes' + (lp.segredo ? ' segredo' : ''), text: lp.titulo }));
     title.appendChild(el('div', { class: 'dh-classe', text: p.classe || '—' }));

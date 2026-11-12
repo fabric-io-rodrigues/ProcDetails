@@ -16,6 +16,7 @@
   --mprj:   #C2620A;  /* laranja*/
   --dje:    #BE185D;  /* magenta: DJERJ (diários antigos) */
   --evento: #7C3AED;  /* roxo   */
+  --sigilo: #B91C1C;  /* vermelho: segredo de justiça */
 
   --r-sm: 6px;
   --r-md: 9px;
@@ -318,6 +319,11 @@ select.input { appearance: none; padding-right: 34px;
 .badge.dje    { color: var(--dje);    background: color-mix(in oklch, var(--dje) 13%, var(--surface));    border-color: color-mix(in oklch, var(--dje) 26%, transparent); }
 .badge.mprj   { color: var(--mprj);   background: color-mix(in oklch, var(--mprj) 14%, var(--surface));   border-color: color-mix(in oklch, var(--mprj) 28%, transparent); }
 .badge.evento { color: var(--evento); background: color-mix(in oklch, var(--evento) 14%, var(--surface)); border-color: color-mix(in oklch, var(--evento) 28%, transparent); }
+.badge.sigilo { color: var(--sigilo); background: color-mix(in oklch, var(--sigilo) 12%, var(--surface)); border-color: color-mix(in oklch, var(--sigilo) 30%, transparent); }
+:root[data-theme='dark'] .badge.sigilo { color: color-mix(in oklch, var(--sigilo) 60%, white); }
+.badge.sigilo svg { width: 12px; height: 12px; flex: none; }
+.dh-cnj .badge.sigilo { margin-left: 10px; vertical-align: middle; }
+.sr-head .badge.sigilo { margin-top: 4px; }
 
 /* chips advogados / tags */
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
