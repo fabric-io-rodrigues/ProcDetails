@@ -65,13 +65,24 @@
     const card = el('div', { class: 'modal-card' });
     card.appendChild(el('h3', { class: 'modal-title', text: 'Resumo do processo' }));
     card.appendChild(el('p', { class: 'modal-sub', text: fmtCNJ(p.numero, p.cnj) }));
-    const check = (rotulo) => {
+    const qtd = Resumo.contarAnexos(p.numero);
+    const check = (rotulo, n) => {
       const input = el('input', { type: 'checkbox' });
-      input.checked = true;
-      return { input, label: el('label', { class: 'resumo-opcao' }, [input, rotulo]) };
+      input.checked = n > 0;
+      input.disabled = !n;
+      return { input, n, label: el('label', { class: 'resumo-opcao' }, [input, `${rotulo} (${n})`]) };
     };
-    const optDo = check("Incluir PDF's DO"), optDec = check("Incluir PDF's Decisões");
+    const optDo = check("Incluir PDF's DO", qtd.diarios), optDec = check("Incluir PDF's Decisões", qtd.atos);
+    const total = el('p', { class: 'modal-sub' });
+    const contar = () => {
+      const n = (optDo.input.checked ? optDo.n : 0) + (optDec.input.checked ? optDec.n : 0);
+      total.textContent = n ? `${n} PDF${n > 1 ? 's' : ''} ser${n > 1 ? 'ão' : 'á'} anexado${n > 1 ? 's' : ''} ao relatório.` : 'Nenhum PDF será anexado.';
+    };
+    optDo.input.addEventListener('change', contar);
+    optDec.input.addEventListener('change', contar);
+    contar();
     card.appendChild(el('div', { class: 'resumo-opcoes' }, [optDo.label, optDec.label]));
+    card.appendChild(total);
     const lista = el('ul', { class: 'resumo-etapas' });
     const itens = ETAPAS_RESUMO.map((t) => lista.appendChild(el('li', { text: t })));
     const acts = el('div', { class: 'modal-actions' });

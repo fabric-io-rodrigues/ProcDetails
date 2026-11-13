@@ -396,6 +396,12 @@
       });
   }
 
+  function contarAnexos(numero) {
+    const c = { diarios: 0, atos: 0 };
+    for (const m of Services.listarMovimentos(numero)) if (m.decisao) c[FONTES_DIARIO.has(m.fonte) ? 'diarios' : 'atos']++;
+    return c;
+  }
+
   function entradasSumario(rotuloMov, anexos) {
     const e = [{ txt: 'Capa', alvo: 'capa' }, { txt: 'Sumário', alvo: 'sumario' }];
     if (rotuloMov) e.push({ txt: rotuloMov, alvo: 'movimentos' });
@@ -563,5 +569,5 @@
     baixar(bytes, `Resumo_${d.cnj}.pdf`);
   }
 
-  window.Resumo = { gerar, paragrafosTjrj: detalheTjrj };
+  window.Resumo = { gerar, contarAnexos, paragrafosTjrj: detalheTjrj };
 })();
