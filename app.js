@@ -1268,25 +1268,41 @@
       sub.textContent = '';
       const rel = Services.advogadosRelacionados(a);
       if (rel.length || b) results.appendChild(painelRelacionados(a, rel, (v) => acB.setValue(v), navTo, b));
+      if (!b) results.appendChild(painelClientes(a, (f) => {
+        orgFilter = { numeros: new Set(f.numeros), label: f.label, icone: 'pessoa' };
+        paintList();
+        requestAnimationFrame(() => filterBar.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      }));
       results.appendChild(painelPartesAdv(a, b));
 
       const allRows = b ? Services.buscarDoisAdvogados(a, b) : Services.buscarPorAdvogado(a);
       const baseMeta = b ? `processos com <b>${esc(a)}</b> e <b>${esc(b)}</b>` : `processos com <b>${esc(a)}</b>`;
       let orgFilter = null; // { numeros:Set, label:string }
+      const ref = { tipo: 'advogado', nome: a };
+      const polos = b ? null : Services.polosNosProcessos(ref, allRows.map((r) => r.numero));
 
       const filterBar = el('div', { class: 'org-filter' });
       const metaEl = el('p', { class: 'result-meta' });
+      const poloBar = el('div', { class: 'polo-bar' });
       const cont = el('div');
 
       function paintList() {
         const rows = orgFilter ? allRows.filter((r) => orgFilter.numeros.has(r.numero)) : allRows;
-        metaEl.innerHTML = `<b>${rows.length}</b> ${baseMeta}`;
+        // advogado só: lista que abre com os lados + filtro pelo polo dele; dois advogados: lista comum
+        const pintar = (fr) => {
+          metaEl.innerHTML = `<b>${fr.length}</b> ${baseMeta}`;
+          if (polos) { cont.innerHTML = ''; cont.appendChild(listaLados(fr, ref, polos)); } else renderListaProcessos(fr, cont);
+        };
+        poloBar.innerHTML = '';
+        if (polos) poloBar.appendChild(filtroPolo(rows, polos, pintar));
         filterBar.innerHTML = '';
         if (orgFilter) {
           filterBar.style.display = 'flex';
           filterBar.appendChild(el('span', { class: 'org-filter-label', text: 'Filtrando por' }));
           const chip = el('span', { class: 'org-filter-chip' });
-          chip.innerHTML = '<svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M10 2.5c-3 0-5.5 2.3-5.5 5.3 0 4 5.5 9.7 5.5 9.7s5.5-5.7 5.5-9.7C15.5 4.8 13 2.5 10 2.5z" stroke-linejoin="round"/><circle cx="10" cy="7.8" r="1.9"/></svg>';
+          chip.innerHTML = orgFilter.icone === 'pessoa'
+            ? '<svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="10" cy="7" r="3"/><path d="M4 17c0-3.3 2.7-5 6-5s6 1.7 6 5" stroke-linecap="round"/></svg>'
+            : '<svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M10 2.5c-3 0-5.5 2.3-5.5 5.3 0 4 5.5 9.7 5.5 9.7s5.5-5.7 5.5-9.7C15.5 4.8 13 2.5 10 2.5z" stroke-linejoin="round"/><circle cx="10" cy="7.8" r="1.9"/></svg>';
           chip.appendChild(el('span', { text: orgFilter.label }));
           const x = el('button', { class: 'ofc-x', type: 'button', text: '✕', title: 'Limpar filtro', 'aria-label': 'Limpar filtro' });
           x.addEventListener('click', () => { orgFilter = null; paintList(); });
@@ -1295,7 +1311,7 @@
         } else {
           filterBar.style.display = 'none';
         }
-        renderListaProcessos(rows, cont);
+        pintar(rows);
       }
 
       const onFocus = (node, names, viaLeaf) => {
@@ -1311,7 +1327,9 @@
 
       results.appendChild(painelAtuacao(a, onFocus));
       results.appendChild(filterBar);
-      results.appendChild(metaEl);
+      const listaHead = el('div', { class: 'lista-head' });
+      listaHead.append(metaEl, poloBar);
+      results.appendChild(listaHead);
       results.appendChild(cont);
       paintList();
     }
@@ -1349,6 +1367,131 @@
       case 'central':     return cv('--accent', '#0E7C66');
       default:            return cv('--muted', '#6B7585');
     }
+  }
+
+  /* ========== processos com os lados (tela do advogado e da parte) ======
+   * Bolinha: verde = mesmo lado de quem está sendo visto, vermelha = lado contrário, cinza = lado não
+   * identificado nas fontes. Pessoas e advogados em colunas separadas. */
+  const LADO_ROT = { mesmo: 'Mesmo lado', oposto: 'Lado contrário', indef: 'Lado não identificado' };
+  const POLO_ROT = { ativo: 'Autor', passivo: 'Réu' };
+  function ladoDot(lado) { return el('span', { class: 'lado-dot lado-' + lado, title: LADO_ROT[lado] }); }
+  function poloPill(polo) {
+    return el('span', { class: 'polo-pill polo-' + (polo || 'indef'), text: POLO_ROT[polo] || 'Indefinido' });
+  }
+
+  function painelLados(numero, ref) {
+    const L = Services.ladosDoProcesso(numero, ref);
+    const box = el('div', { class: 'lados' });
+    const col = (titulo, itens, tipo) => {
+      const c = el('div', { class: 'lados-col' });
+      c.appendChild(el('h5', { text: `${titulo} (${itens.length})` }));
+      if (!itens.length) c.appendChild(el('div', { class: 'lados-vazio', text: 'Nenhum registrado' }));
+      itens.forEach((x) => {
+        const it = el('a', { class: 'lados-item', href: (tipo === 'advogado' ? '#/advogado?q=' : '#/partes?q=') + encodeURIComponent(x.nome) });
+        it.appendChild(ladoDot(x.lado));
+        const txt = el('span', { class: 'lados-txt' });
+        txt.appendChild(el('span', { class: 'lados-nome', text: x.nome }));
+        const meta = tipo === 'advogado' ? (x.oab || '').replace(/^OAB[\s/]*/i, '') : x.papel;
+        if (meta) txt.appendChild(el('span', { class: 'lados-meta', text: meta }));
+        it.appendChild(txt);
+        if (x.cliente) it.appendChild(el('span', { class: 'lados-tag', text: 'cliente' }));
+        if (x.patrono) it.appendChild(el('span', { class: 'lados-tag', text: 'patrono' }));
+        c.appendChild(it);
+      });
+      return c;
+    };
+    box.append(col('Pessoas', L.pessoas, 'parte'), col('Advogados', L.advogados, 'advogado'));
+    return box;
+  }
+
+  const CHEV = '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 5l5 5-5 5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  // lista de processos que abrem (sem sair da tela) mostrando os lados vistos por `ref`
+  function listaLados(rows, ref, polos) {
+    const wrap = el('div', { class: 'lados-lista' });
+    if (!rows.length) { wrap.appendChild(emptyState('Nenhum processo', 'Ajuste o filtro.')); return wrap; }
+    rows.forEach((p) => {
+      const item = el('div', { class: 'lados-proc' });
+      const head = el('div', { class: 'lados-head', role: 'button', tabindex: '0', 'aria-expanded': 'false' });
+      head.appendChild(el('span', { class: 'lados-chev', html: CHEV }));
+      head.appendChild(poloPill(polos.get(p.numero)));
+      const mid = el('div', { class: 'lados-mid' });
+      const lp = linhasProc(p);
+      mid.title = lp.tip;
+      const l1 = el('div', { class: 'lados-l1' });
+      const cnj = el('a', { class: 'cnj', href: procHref(p.numero), text: fmtCNJ(p.numero, p.cnj), title: 'Abrir o processo' });
+      cnj.addEventListener('click', (e) => e.stopPropagation());
+      l1.append(cnj, el('span', { class: 't' + (lp.segredo ? ' segredo' : ''), text: lp.main }));
+      mid.append(l1, el('div', { class: 's', text: lp.sub }));
+      head.appendChild(mid);
+      head.appendChild(el('span', { class: 'cell-date', text: fmtData(p.data_ultima_com || p.data_ultimo_mov) }));
+      item.appendChild(head);
+      let corpo = null;
+      const alternar = () => {
+        const aberto = item.classList.toggle('aberto');
+        head.setAttribute('aria-expanded', String(aberto));
+        if (aberto && !corpo) { corpo = painelLados(p.numero, ref); item.appendChild(corpo); }
+      };
+      head.addEventListener('click', alternar);
+      head.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); alternar(); } });
+      wrap.appendChild(item);
+    });
+    return wrap;
+  }
+
+  // Todos / Autor / Réu / Indefinido, pelo polo de quem está sendo visto
+  function filtroPolo(rows, polos, onChange) {
+    const seg = el('div', { class: 'seg seg-polo' });
+    const n = (f) => rows.filter((r) => (polos.get(r.numero) || null) === f).length;
+    const opts = [['todos', 'Todos', rows.length], ['ativo', 'Autor', n('ativo')], ['passivo', 'Réu', n('passivo')], [null, 'Indefinido', n(null)]];
+    opts.forEach(([f, lab, qt], i) => {
+      if (i && !qt) return;
+      const b = el('button', { class: i === 0 ? 'active' : '', text: `${lab} ${qt}` });
+      b.addEventListener('click', () => {
+        seg.querySelectorAll('button').forEach((x) => x.classList.remove('active')); b.classList.add('active');
+        onChange(f === 'todos' ? rows : rows.filter((r) => (polos.get(r.numero) || null) === f));
+      });
+      seg.appendChild(b);
+    });
+    return seg;
+  }
+
+  // Clientes do advogado (partes que ele representa); clicar filtra os processos abaixo
+  function painelClientes(nome, onCliente) {
+    const card = el('div', { class: 'adv-related' });
+    const head = el('div', { class: 'adv-related-head' });
+    const hl = el('div');
+    hl.appendChild(el('h3', { text: 'Clientes' }));
+    hl.appendChild(el('div', { class: 'sub', text: 'Partes que o advogado representa — clique para ver os processos' }));
+    head.appendChild(hl); card.appendChild(head);
+    const { clientes, semLado } = Services.clientesDoAdvogado(nome);
+    const lista = el('div', { class: 'rel-list' });
+    if (!clientes.length) lista.appendChild(el('p', { class: 'result-meta', text: 'Nenhum cliente identificado nas fontes.' }));
+    clientes.slice(0, 120).forEach((c) => {
+      const it = el('div', { class: 'rel-item cli-item' });
+      const nm = el('span', { class: 'rel-name' }, el('span', { text: c.nome }));
+      if (c.inferido) nm.appendChild(el('span', { class: 'lados-tag fraca', text: 'pelo polo', title: 'Ligação não informada: é parte do mesmo polo do advogado' }));
+      it.appendChild(nm);
+      const pills = el('span', { class: 'cli-pills' });
+      if (c.ativo) pills.appendChild(el('span', { class: 'polo-pill polo-ativo', text: `Autor ${c.ativo}` }));
+      if (c.passivo) pills.appendChild(el('span', { class: 'polo-pill polo-passivo', text: `Réu ${c.passivo}` }));
+      it.appendChild(pills);
+      it.appendChild(el('span', { class: 'rel-num', html: `<b>${c.numeros.length}</b> proc.` }));
+      const abrir = el('a', { class: 'cli-abrir', href: '#/partes?q=' + encodeURIComponent(c.nome), title: 'Ver a parte', 'aria-label': 'Ver a parte', html: CHEV });
+      abrir.addEventListener('click', (e) => e.stopPropagation());
+      it.appendChild(abrir);
+      it.addEventListener('click', () => onCliente({ numeros: c.numeros, label: 'Cliente: ' + c.nome }));
+      lista.appendChild(it);
+    });
+    if (semLado.length) {
+      const it = el('div', { class: 'rel-item cli-item cli-sem' });
+      it.appendChild(el('span', { class: 'rel-name' }, el('span', { text: 'Cliente não identificado' })));
+      it.appendChild(el('span', { class: 'rel-num', html: `<b>${semLado.length}</b> proc.` }));
+      it.title = 'Processos em que as fontes não dizem de que lado o advogado está';
+      it.addEventListener('click', () => onCliente({ numeros: semLado, label: 'Cliente não identificado' }));
+      lista.appendChild(it);
+    }
+    card.appendChild(lista);
+    return card;
   }
 
   // box exibido na tela de Advogados (pessoas do advogado, ou em comum entre dois)
@@ -1523,9 +1666,20 @@
       wrapAll.appendChild(acard);
     }
 
+    // processos que abrem com os lados vistos pela pessoa, filtráveis por Autor / Réu
     const rows = Services.buscarPorParte(nome);
-    wrapAll.appendChild(el('p', { class: 'result-meta', style: 'margin-top:16px;', html: `<b>${rows.length}</b> processo${rows.length !== 1 ? 's' : ''} com <b>${esc(nomeDisp)}</b>` }));
-    const cont = el('div'); renderListaProcessos(rows, cont); wrapAll.appendChild(cont);
+    const ref = { tipo: 'parte', nome };
+    const polos = Services.polosNosProcessos(ref, rows.map((r) => r.numero));
+    const metaEl = el('p', { class: 'result-meta' });
+    const cont = el('div');
+    const pintar = (fr) => {
+      metaEl.innerHTML = `<b>${fr.length}</b> processo${fr.length !== 1 ? 's' : ''} com <b>${esc(nomeDisp)}</b>`;
+      cont.innerHTML = ''; cont.appendChild(listaLados(fr, ref, polos));
+    };
+    const listaHead = el('div', { class: 'lista-head', style: 'margin-top:16px;' });
+    listaHead.append(metaEl, filtroPolo(rows, polos, pintar));
+    wrapAll.append(listaHead, cont);
+    pintar(rows);
     return wrapAll;
   }
 

@@ -888,6 +888,86 @@
       .map((r) => ({ nome: r.nome, key: _parteKey(r.nome), tipo: r.tipo, polo: _poloClasse(r.polo), papel: r.papel || '', oab: r.oab || '', fontes: r.fontes || '' }));
   }
 
+  /* ------------------------------ lados no processo (advogado ↔ partes) */
+  // numero -> linhas (partes e advogados) com polo e, no advogado, as partes que ele representa
+  function _linhasLados(numeros) {
+    const out = new Map(numeros.map((n) => [n, []]));
+    if (!numeros.length) return out;
+    const cli = _temCol('partes_processo', 'clientes') ? 'clientes' : "'' AS clientes";
+    const ph = numeros.map(() => '?').join(',');
+    for (const r of query(`SELECT numero_processo AS np, nome, tipo, polo, papel, oab, ${cli} FROM partes_processo
+                           WHERE numero_processo IN (${ph}) AND tipo IN ('parte', 'advogado') ORDER BY id`, numeros)) {
+      out.get(r.np).push({
+        nome: r.nome, tipo: r.tipo, papel: r.papel || '', oab: r.oab || '', polo: _poloClasse(r.polo),
+        key: r.tipo === 'advogado' ? _advKey(r.nome, r.oab) : _parteKey(r.nome),
+        clientes: String(r.clientes || '').split(' | ').filter(Boolean).map(_parteKey),
+      });
+    }
+    return out;
+  }
+  function _refKey(ref) { return ref.tipo === 'advogado' ? _advKey(ref.nome) : _chavePessoa(_ensurePartes().pinfo, ref.nome); }
+  function _poloDe(linhas, key) {
+    const r = linhas.find((x) => x.key === key && x.polo !== 'outro');
+    return r ? r.polo : null;
+  }
+
+  // polo de `ref` ({tipo: 'advogado'|'parte', nome}) em cada processo: numero -> 'ativo'|'passivo'|null
+  function polosNosProcessos(ref, numeros) {
+    const k = _refKey(ref), linhas = _linhasLados(numeros);
+    return new Map(numeros.map((n) => [n, _poloDe(linhas.get(n), k)]));
+  }
+
+  // Pessoas e advogados do processo vistos por `ref`: lado 'mesmo' | 'oposto' | 'indef' (polo desconhecido).
+  // Advogado: `cliente` marca as partes que ele representa; parte: `patrono` marca os advogados dela.
+  function ladosDoProcesso(numero, ref) {
+    const k = _refKey(ref), linhas = _linhasLados([numero]).get(numero);
+    const polo = _poloDe(linhas, k);
+    const meusClientes = new Set(linhas.filter((r) => r.key === k).flatMap((r) => r.clientes));
+    const lado = (r) => (!polo || r.polo === 'outro' ? 'indef' : r.polo === polo ? 'mesmo' : 'oposto');
+    const pessoas = [], advogados = [], vistos = new Set();
+    for (const r of linhas) {
+      if (r.key === k || vistos.has(r.tipo + r.key)) continue;
+      vistos.add(r.tipo + r.key);
+      const item = { nome: r.nome, oab: r.oab, papel: r.papel, polo: r.polo, lado: lado(r) };
+      if (r.tipo === 'parte') { item.cliente = meusClientes.has(r.key); pessoas.push(item); }
+      else { item.patrono = ref.tipo === 'parte' && r.clientes.includes(k); advogados.push(item); }
+    }
+    const ordem = { mesmo: 0, oposto: 1, indef: 2 };
+    const ord = (a, b) => ordem[a.lado] - ordem[b.lado] || (b.cliente || b.patrono ? 1 : 0) - (a.cliente || a.patrono ? 1 : 0);
+    return { polo, pessoas: pessoas.sort(ord), advogados: advogados.sort(ord) };
+  }
+
+  // Clientes do advogado: partes que ele representa em cada processo; sem a ligação, as partes do polo dele
+  // (inferido). Processos sem polo nem cliente vão em semLado.
+  function clientesDoAdvogado(nome) {
+    const k = _advKey(nome);
+    const rec = _ensureAdv().info.get(k);
+    if (!rec) return { clientes: [], semLado: [] };
+    const linhas = _linhasLados([...rec.numeros]);
+    const por = new Map(), semLado = [];
+    for (const [numero, ls] of linhas) {
+      const polo = _poloDe(ls, k);
+      let alvo = new Set(ls.filter((r) => r.key === k).flatMap((r) => r.clientes)), inferido = false;
+      if (!alvo.size && polo) {   // o próprio advogado listado como parte não é cliente dele
+        alvo = new Set(ls.filter((r) => r.tipo === 'parte' && r.polo === polo && r.key !== _advNome(nome)).map((r) => r.key));
+        inferido = true;
+      }
+      if (!alvo.size) { semLado.push(numero); continue; }
+      for (const pk of alvo) {
+        const p = ls.find((r) => r.tipo === 'parte' && r.key === pk);
+        let c = por.get(pk);
+        if (!c) { c = { key: pk, nome: p ? p.nome : pk, numeros: [], ativo: 0, passivo: 0, inferido: true }; por.set(pk, c); }
+        if (c.numeros.includes(numero)) continue;
+        c.numeros.push(numero);
+        const pp = p && p.polo !== 'outro' ? p.polo : polo;
+        if (pp === 'ativo') c.ativo++; else if (pp === 'passivo') c.passivo++;
+        if (!inferido) c.inferido = false;
+      }
+    }
+    const clientes = [...por.values()].sort((a, b) => b.numeros.length - a.numeros.length || a.nome.localeCompare(b.nome, 'pt'));
+    return { clientes, semLado };
+  }
+
 
   /* ----------------------------------- 5. Grafo completo de relações */
   /**
@@ -1238,5 +1318,8 @@
     partesComunsAdvogados,
     advogadosComunsDaParte,
     partesDoProcesso,
+    polosNosProcessos,
+    ladosDoProcesso,
+    clientesDoAdvogado,
   };
 })();
